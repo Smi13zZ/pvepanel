@@ -48,6 +48,7 @@ def step(title, argv, cwd=None):
 
 
 step("structure check", [sys.executable, os.path.join(ROOT, "tools", "check_structure.py")])
+step("docs references", [sys.executable, os.path.join(ROOT, "tools", "check_docs.py")])
 step("python compiles", [sys.executable, "-m", "compileall", "-q", SERVER])
 
 # node --check on every front-end script; skip politely when node is absent.

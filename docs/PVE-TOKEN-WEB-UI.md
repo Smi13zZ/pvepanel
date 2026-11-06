@@ -13,7 +13,7 @@
 用 `root@pam` 登录后，左侧点 **数据中心**，再点左侧导航树里的 **权限**。
 展开后能看到 **用户 / API 令牌 / 群组 / 池 / 角色 / 领域** 这些子项。
 
-![数据中心 → 权限](01-datacenter-permissions.png)
+![数据中心 → 权限](images/token/01-datacenter-permissions.png)
 
 ---
 
@@ -28,7 +28,7 @@
 | 密码 / 确认密码 | 至少 8 位。面板用令牌访问，不依赖这个密码，但用户必须先能建出来 |
 | 备注 | 例如 `PVEpanel 监控面板` |
 
-![添加用户](02-add-user.png)
+![添加用户](images/token/02-add-user.png)
 
 点 **添加** 保存。
 
@@ -45,7 +45,7 @@
 | 角色 | `PVEAuditor` |
 | 继承（Propagate） | **保持勾选** |
 
-![用户权限 PVEAuditor](03-user-permission.png)
+![用户权限 PVEAuditor](images/token/03-user-permission.png)
 
 > **为什么必须是 `/`**：只授在 `/nodes/<节点>` 的话，`/cluster/status` 和
 > `/nodes/<节点>/disks/smart` 会 403——这两个端点查的是根路径权限。
@@ -78,7 +78,7 @@
 | 特权分离（Privilege Separation） | **保持勾选** |
 | 备注 | 例如 `PVEpanel 控制用` |
 
-![添加 API 令牌](04-add-token.png)
+![添加 API 令牌](images/token/04-add-token.png)
 
 ---
 
@@ -92,7 +92,7 @@
 窗口上有 **复制密钥值** 按钮。**这个密钥只显示这一次**，关掉就再也看不到，丢了只能
 「重新生成密钥」（旧密钥立即失效）。
 
-![令牌密钥只显示一次](05-token-secret.png)
+![令牌密钥只显示一次](images/token/05-token-secret.png)
 
 把两段用 `=` 连起来，就是面板里要填的完整令牌：
 
@@ -115,7 +115,7 @@ pvepanel@pve!panel=d67a399c-ff93-4bba-b04a-50c52d813b74
 | 角色 | `PVEAuditor` |
 | 继承 | **保持勾选** |
 
-![令牌权限 PVEAuditor](07-token-readonly.png)
+![令牌权限 PVEAuditor](images/token/07-token-readonly.png)
 
 ---
 
@@ -130,9 +130,11 @@ pvepanel@pve!panel=d67a399c-ff93-4bba-b04a-50c52d813b74
 | 角色 | `PVEVMAdmin` |
 | 继承 | **保持勾选** |
 
+![令牌权限 PVEVMAdmin](images/token/06-token-permission.png)
+
 完成后权限列表里应该有这四条：
 
-![四条 ACL 全貌](08-final-acls.png)
+![四条 ACL 全貌](images/token/08-final-acls.png)
 
 ```
 /     user  pvepanel@pve        PVEAuditor   propagate=1

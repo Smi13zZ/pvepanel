@@ -69,6 +69,14 @@ jobs:
           # compile cleanly and only fail on the device at request time.
           python3 -m compileall -q src/fn-pvepanel/app/server
 
+      - name: Docs references
+        run: |
+          set -euo pipefail
+          # Relative paths in Markdown resolve against the containing file, so a
+          # figure written as `foo.png` inside docs/ 404s on GitHub even though
+          # the file exists in docs/images/. Nothing local catches that.
+          python3 tools/check_docs.py
+
       - name: Syntax check the front-end
         run: |
           set -euo pipefail
