@@ -102,13 +102,13 @@ Bark / Server 酱 / PushPlus / WxPusher / Telegram / 企业微信机器人 / 钉
 
 1. 到本仓库的 [Releases](../../releases) 页面下载最新的 `fn-pvepanel-<版本>-fnos-all.fpk`；
 2. 打开飞牛 fnOS → **应用中心** → **手动安装**，选择刚下载的 fpk；
-3. 安装向导里已经预填好一个随机的 5 位端口，直接沿用即可；
+3. 安装向导里已经预填好端口 39205，直接沿用即可；
 4. 装好后飞牛桌面会出现 **PVEpanel** 图标，点开即用。
 
 ### 方式二：命令行安装
 
 ```bash
-appcenter-cli install-fpk /path/to/fn-pvepanel-26.11.11-fnos-all.fpk
+appcenter-cli install-fpk /path/to/fn-pvepanel-26.11.14-fnos-all.fpk
 ```
 
 > `appcenter-cli` 安装时必须提供环境变量文件（`-e`）；它**不会覆盖已安装的同名应用**，
@@ -123,26 +123,92 @@ appcenter-cli install-fpk /path/to/fn-pvepanel-26.11.11-fnos-all.fpk
 
 ---
 
-## 准备 PVE 的只读 Token
+## 准备 PVE 的 Token
 
-PVE 用 API Token 授权。**一个 `PVEAuditor` 角色就够**，但它必须授在 `/` 并开启 propagate：
+PVE 用 API Token 授权。只读用途一个 `PVEAuditor` 角色就够，但它必须授在 `/` 并开启「继承」。
+
+建 Token 有两条路，**网页界面更省事**，先讲这个。
+
+### 方式一：网页界面（推荐）
+
+用浏览器打开 `https://<PVE 地址>:8006`，用 `root@pam` 登录。左边选 **数据中心**，点 **权限**，
+面板上方会出现一排页签：**权限 / 用户 / API 令牌 / 群组 / 池 / 角色 / 领域**。下面四步都在这里完成。
+
+#### ① 建一个专用用户
+
+切到 **用户** 页签，点 **添加**：
+
+| 字段 | 填什么 |
+|---|---|
+| 用户名 | `monitor`（这里**不写** `@pve`，领域由下一栏决定） |
+| 领域 | `Proxmox VE authentication server` —— 就是 `@pve`，和系统 Linux 账号隔开 |
+| 密码 / 确认密码 | 自己定，至少 8 位。面板用 Token 不走密码，但这个用户得先能建出来 |
+| 备注 | 例如 `PVEpanel 只读` |
+
+#### ② 给用户授权
+
+切到 **权限** 页签，点 **添加** → 菜单里选 **用户权限**：
+
+| 字段 | 填什么 |
+|---|---|
+| 路径 | `/` |
+| 用户 | `monitor@pve` |
+| 角色 | `PVEAuditor` |
+| 继承 | **保持勾选**（默认就是勾上的，别去掉） |
+
+#### ③ 建 API Token
+
+切到 **API 令牌** 页签，点 **添加**：
+
+| 字段 | 填什么 |
+|---|---|
+| 用户 | `monitor@pve` |
+| 令牌 ID | `panel` |
+| 特权分离 | **保持勾选**（含义见下面第 ④ 步） |
+| 备注 | 例如 `PVEpanel` |
+
+点 **添加** 后会弹出一个窗口，里面两行：
+
+- **令牌 ID**：`monitor@pve!panel`
+- **密钥**：一串 uuid
+
+窗口上还有 **复制密钥值** 按钮，点一下就能复制密钥。**这个密钥只显示这一次**，关掉就再也看不到，
+丢了只能重新生成。把两段用 `=` 连起来：
+
+```
+monitor@pve!panel=xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+```
+
+这一整串就是面板里「API Token」要填的东西。
+
+#### ④ 也给 Token 授一遍权限
+
+「特权分离」勾着时，Token 的有效权限 = **用户权限 ∩ Token 权限**，两边都要给。所以再切回
+**权限** 页签，点 **添加** → **API 令牌权限**：
+
+| 字段 | 填什么 |
+|---|---|
+| 路径 | `/` |
+| API 令牌 | `monitor@pve!panel` |
+| 角色 | `PVEAuditor` |
+| 继承 | **保持勾选** |
+
+> **想少授一条？** 第 ③ 步把「特权分离」取消勾选，Token 就直接继承用户权限，第 ④ 步可以跳过。
+> 代价是这枚 Token 从此拥有该用户的**全部**权限，以后给用户加权限等于同时给它加权限。
+> 专用只读账号无所谓，多个 Token 各自权限不同时建议还是保持勾选、分开授权。
+
+### 方式二：命令行
+
+上面四步等价于四条命令，适合写进自动化脚本：
 
 ```bash
-# 1) 建一个专用用户
 pveum user add monitor@pve --comment "PVEpanel read-only"
-
-# 2) 授只读角色到根路径（propagate 不能省）
-pveum acl modify / --users monitor@pve --roles PVEAuditor --propagate 1
-
-# 3) 建 Token（privsep 保持默认 1）
+pveum acl modify / --users  monitor@pve        --roles PVEAuditor --propagate 1
 pveum user token add monitor@pve panel --comment "PVEpanel"
-
-# 4) Token 默认 privsep=1，权限取「用户 ∩ Token」，所以 Token 自己也要授一遍
 pveum acl modify / --tokens 'monitor@pve!panel' --roles PVEAuditor --propagate 1
 ```
 
-第 3 步会输出一次性的 uuid，拼成 `monitor@pve!panel=xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx`
-填进面板即可。**它只显示一次，务必当场保存。**
+`token add` 输出的 uuid 就是密钥，同样只显示一次。
 
 > `pveum` 在 `/usr/sbin`，如果 `ssh root@pve "pveum ..."` 报 command not found，
 > 用 `/usr/sbin/pveum` 全路径或 `bash -lc 'pveum ...'`。
@@ -151,7 +217,7 @@ pveum acl modify / --tokens 'monitor@pve!panel' --roles PVEAuditor --propagate 1
 
 只授在 `/nodes/<node>` 子树的话，`/cluster/status` 与 `/nodes/<node>/disks/smart`
 会直接 403 —— 这两个端点查的是**根路径**权限。面板会把这种情况显示成
-「权限不足，请确认 PVEAuditor 授在 / 并开启 propagate」，而不是笼统的「连接失败」。
+「权限不足，请确认 PVEAuditor 授在 / 并开启继承」，而不是笼统的「连接失败」。
 
 ### 想让面板启停虚拟机
 
@@ -164,7 +230,16 @@ POST /nodes/pve9/qemu/300/status/shutdown
 ```
 
 要启停，就在 `/vms` 上再追加 `PVEVMAdmin`（它含 `VM.PowerMgmt`）。
-**用户和 Token 各授一遍**（`privsep=1` 时权限取交集）：
+**用户和 Token 各授一遍**（特权分离下权限取交集）。
+
+网页界面里就是回到 **数据中心 → 权限** 页签点两次 **添加**：
+
+| 第几条 | 添加时选 | 路径 | 对象 | 角色 | 继承 |
+|---|---|---|---|---|---|
+| 1 | 用户权限 | `/vms` | `monitor@pve` | `PVEVMAdmin` | 勾选 |
+| 2 | API 令牌权限 | `/vms` | `monitor@pve!panel` | `PVEVMAdmin` | 勾选 |
+
+命令行等价：
 
 ```bash
 pveum acl modify /vms --users  monitor@pve        --roles PVEVMAdmin --propagate 1
@@ -336,8 +411,8 @@ src/fn-pvepanel/
 ├── manifest                 # 应用元信息：包名、版本、端口、平台
 ├── ICON.PNG / ICON_256.PNG  # 应用图标（64 / 256）
 ├── config/                  # 运行身份（root）与应用文件夹声明
-├── wizard/                  # 安装向导（说明端口是自动挑选的）
-├── cmd/main                 # 生命周期脚本：start / stop / status，并负责选端口
+├── wizard/                  # 安装向导（端口预填 39205，可在此改）
+├── cmd/main                 # 生命周期脚本：start / stop / status，并解析实际端口
 └── app/
     ├── server/              # pvepanel.py（HTTP 服务与路由）、collector.py（采集与缓存）、
     │                        # pveclient.py（连接池）、store.py（配置与 Token）、
@@ -358,8 +433,7 @@ python tools/preflight.py     # 跑齐 CI 的全部闸门
 
 ### 端口
 
-面板默认监听 **39205**（不再是 8899）。8899 在很多机器上已经被别的服务占着，
-监控面板因为端口冲突起不来是最没必要的故障；39205 落在私有端口段里，撞车的概率低得多。
+面板默认监听 **39205**。
 
 安装向导里已经预填好这个号，直接沿用即可。端口**只在本机 `127.0.0.1` 监听**，
 桌面入口是通过飞牛登录校验之后的 CGI 转发进来的，外部无法直连。

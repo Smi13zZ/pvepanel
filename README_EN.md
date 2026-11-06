@@ -103,13 +103,13 @@ Mobile (390px):
 
 1. Download the latest `fn-pvepanel-<version>-fnos-all.fpk` from [Releases](../../releases);
 2. fnOS → **App Center** → **Manual install** → pick the file;
-3. The wizard already shows the random 5-digit port chosen at build time — accept it;
+3. The wizard already shows port 39205 pre-filled — accept it;
 4. A **PVEpanel** icon appears on the fnOS desktop.
 
 ### Option 2: install from the command line
 
 ```bash
-appcenter-cli install-fpk /path/to/fn-pvepanel-26.11.11-fnos-all.fpk
+appcenter-cli install-fpk /path/to/fn-pvepanel-26.11.14-fnos-all.fpk
 ```
 
 > `appcenter-cli` requires the environment file (`-e`) and **will not overwrite an installed app** —
@@ -124,26 +124,97 @@ appcenter-cli install-fpk /path/to/fn-pvepanel-26.11.11-fnos-all.fpk
 
 ---
 
-## Prepare a read-only PVE token
+## Prepare a PVE token
 
-A single `PVEAuditor` role is enough — but it must be granted on `/` **with propagate**:
+PVE authenticates over the API with a token. For read-only use a single `PVEAuditor` role is
+enough, but it has to be granted on `/` with **Propagate** enabled.
+
+There are two ways to create it. **The web UI is quicker**, so start there.
+
+### Option 1: the web UI (recommended)
+
+Open `https://<pve-host>:8006` and log in as `root@pam`. Select **Datacenter** in the left tree,
+then **Permissions**. A row of tabs appears: **Permissions / Users / API Tokens / Groups / Pools /
+Roles / Realms**. All four steps happen right there.
+
+#### 1. Create a dedicated user
+
+Go to the **Users** tab and click **Add**:
+
+| Field | Value |
+|---|---|
+| User name | `monitor` — **no** `@pve` here, the realm comes from the next field |
+| Realm | `Proxmox VE authentication server` — that is the `@pve` realm, separate from Linux accounts |
+| Password / Confirm password | Anything, at least 8 characters. The panel uses the token and never this password, but the user has to exist |
+| Comment | e.g. `PVEpanel read-only` |
+
+#### 2. Grant the user read-only access
+
+Go to the **Permissions** tab, click **Add**, and choose **User Permission**:
+
+| Field | Value |
+|---|---|
+| Path | `/` |
+| User | `monitor@pve` |
+| Role | `PVEAuditor` |
+| Propagate | **leave it checked** — it is checked by default, do not clear it |
+
+#### 3. Create the API token
+
+Go to the **API Tokens** tab and click **Add**:
+
+| Field | Value |
+|---|---|
+| User | `monitor@pve` |
+| Token ID | `panel` |
+| Privilege Separation | **leave it checked** (see step 4) |
+| Comment | e.g. `PVEpanel` |
+
+After you confirm, a window titled **Token Secret** appears with two fields:
+
+- **Token ID**: `monitor@pve!panel`
+- **Secret**: a uuid
+
+There is also a **Copy Secret Value** button. **This secret is shown exactly once** — close the
+window and it is gone; if you lose it you have to regenerate it. Join the two fields with `=`:
+
+```
+monitor@pve!panel=xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+```
+
+That whole string is what goes into the panel's **API Token** field.
+
+#### 4. Grant the token as well
+
+With Privilege Separation on, a token's effective permissions are **user ACL ∩ token ACL**, so both
+sides need the role. Go back to the **Permissions** tab, click **Add**, and choose
+**API Token Permission**:
+
+| Field | Value |
+|---|---|
+| Path | `/` |
+| API Token | `monitor@pve!panel` |
+| Role | `PVEAuditor` |
+| Propagate | **leave it checked** |
+
+> **Want one grant instead of two?** Clear Privilege Separation in step 3 and the token simply
+> inherits the user's permissions — step 4 becomes unnecessary. The trade-off is that the token now
+> carries **everything** that user has, forever, so adding permissions to the user later also widens
+> the token. For a dedicated read-only account that is fine; when you run several tokens with
+> different scopes, keep the separation and grant each one separately.
+
+### Option 2: the command line
+
+The four steps above are equivalent to four commands, which is handy in automation:
 
 ```bash
-# 1) a dedicated user
 pveum user add monitor@pve --comment "PVEpanel read-only"
-
-# 2) read-only role on the root path (propagate is not optional)
-pveum acl modify / --users monitor@pve --roles PVEAuditor --propagate 1
-
-# 3) create the token (keep privsep at its default of 1)
+pveum acl modify / --users  monitor@pve        --roles PVEAuditor --propagate 1
 pveum user token add monitor@pve panel --comment "PVEpanel"
-
-# 4) privsep=1 means effective = user ACL ∩ token ACL, so grant the token too
 pveum acl modify / --tokens 'monitor@pve!panel' --roles PVEAuditor --propagate 1
 ```
 
-Step 3 prints the uuid **once**. Paste it into the panel as
-`monitor@pve!panel=xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx` and save it right away.
+The uuid printed by `token add` is the secret — also shown only once.
 
 > `pveum` lives in `/usr/sbin`. If `ssh root@pve "pveum ..."` says command not found, use the full
 > path or `bash -lc 'pveum ...'`.
@@ -152,7 +223,7 @@ Step 3 prints the uuid **once**. Paste it into the panel as
 
 Granted only on `/nodes/<node>`, the endpoints `/cluster/status` and `/nodes/<node>/disks/smart`
 return 403 — they check permissions on the **root** path. The panel reports this as
-"permission denied — check that PVEAuditor is granted on / with propagate" instead of a vague
+"permission denied — check that PVEAuditor is granted on / with Propagate enabled" instead of a vague
 "connection failed".
 
 ### Allowing guest power actions
@@ -166,7 +237,16 @@ POST /nodes/pve9/qemu/300/status/shutdown
 ```
 
 Grant `PVEVMAdmin` (which contains `VM.PowerMgmt`) on `/vms`, **to both the user and the token**
-(with `privsep=1` the effective permissions are the intersection):
+— with Privilege Separation on, the effective permissions are the intersection.
+
+In the web UI that is **Datacenter → Permissions → Add**, twice:
+
+| # | Add type | Path | Subject | Role | Propagate |
+|---|---|---|---|---|---|
+| 1 | User Permission | `/vms` | `monitor@pve` | `PVEVMAdmin` | checked |
+| 2 | API Token Permission | `/vms` | `monitor@pve!panel` | `PVEVMAdmin` | checked |
+
+The command-line equivalent:
 
 ```bash
 pveum acl modify /vms --users  monitor@pve         --roles PVEVMAdmin --propagate 1
@@ -352,8 +432,8 @@ src/fn-pvepanel/
 ├── manifest                 # package name, version, port, platform
 ├── ICON.PNG / ICON_256.PNG  # application icons (64 / 256)
 ├── config/                  # run-as identity (root), shared-folder declaration
-├── wizard/                  # install wizard (explains the automatic port)
-├── cmd/main                 # lifecycle: start / stop / status, picks the port too
+├── wizard/                  # install wizard (port 39205 pre-filled, editable there)
+├── cmd/main                 # lifecycle: start / stop / status, resolves the actual port
 └── app/
     ├── server/              # pvepanel.py (HTTP + routes), collector.py (collection + cache),
     │                        # pveclient.py (connection pool), store.py (config + tokens),
@@ -374,9 +454,7 @@ python tools/preflight.py     # run every CI gate locally
 
 ### Port
 
-The panel listens on **39205** by default (no longer 8899). 8899 is already taken on plenty of
-machines, and a monitoring panel that refuses to start because of a port clash is the least
-useful failure mode there is. 39205 sits in the private range, so collisions are far less likely.
+The panel listens on **39205** by default.
 
 The install wizard shows this number pre-filled — just accept it. The port is bound to
 `127.0.0.1` only; the desktop entry reaches the panel through the fnOS login-gated CGI, so

@@ -579,7 +579,7 @@ class Handler(BaseHTTPRequestHandler):
                 out["steps"].append({"name": name, "ok": True, "detail": "通过"})
             except pveclient.PVEPermission as e:
                 out["steps"].append({"name": name, "ok": False, "detail": str(e),
-                                     "hint": "PVEAuditor 必须授在 / 并开启 propagate"})
+                                     "hint": "PVEAuditor 必须授在 / 并勾选「继承」"})
             except pveclient.PVEError as e:
                 out["steps"].append({"name": name, "ok": False, "detail": str(e)})
         try:

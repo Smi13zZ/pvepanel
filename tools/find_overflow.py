@@ -7,11 +7,13 @@ of a similar script took --window-size as the phone width, but this chromium
 ignores that flag, so the measurement is done at whatever viewport the browser
 actually has.
 """
+import os
 import re
 import subprocess
 import sys
 
-BASE = "http://127.0.0.1:8899"
+PORT = os.environ.get("PVEPANEL_PORT") or "39205"
+BASE = "http://127.0.0.1:" + PORT
 
 PROBE = r"""
 <script>

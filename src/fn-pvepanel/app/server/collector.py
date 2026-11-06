@@ -685,7 +685,7 @@ class Collector:
 
         if snap.get("permission_errors"):
             add("warn", "perm",
-                "部分数据无法读取，请确认 PVEAuditor 授在 / 并开启 propagate",
+                "部分数据无法读取，请确认 PVEAuditor 授在 / 并勾选「继承」",
                 {}, "权限不足")
         thr = float(cfg.get("storage_warn") or 85)
         for n in snap.get("cluster", {}).get("nodes") or []:

@@ -175,7 +175,7 @@ class PVEClient:
             if status == 401:
                 raise PVEUnauthorized("PVE 返回 401：Token 无效或已过期")
             if status == 403:
-                raise PVEPermission("PVE 返回 403：权限不足，请检查 ACL 是否授在 / 且 propagate")
+                raise PVEPermission("PVE 返回 403：权限不足，请检查 ACL 是否授在 / 且勾选「继承」")
             if status >= 400:
                 text = body[:200].decode("utf-8", "replace")
                 raise PVEError("HTTP %d %s" % (status, text))

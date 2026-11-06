@@ -2,6 +2,7 @@ __pycache__/
 *.pyc
 *.pyo
 tmp/
+image/
 output/*.fpk
 output/_packed_icon_check/
 *_src.tar

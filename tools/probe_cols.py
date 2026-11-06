@@ -13,11 +13,13 @@ nothing to scroll. The assertion is therefore "no hidden columns anywhere; if
 the content is wider than the wrapper, the wrapper reports it can scroll".
 """
 import json
+import os
 import re
 import subprocess
 import sys
 
-BASE = "http://127.0.0.1:8899"
+PORT = os.environ.get("PVEPANEL_PORT") or "39205"
+BASE = "http://127.0.0.1:" + PORT
 PAGES = ("guests", "tasks", "disks")
 SIZES = ("390x844", "1440x1000")
 

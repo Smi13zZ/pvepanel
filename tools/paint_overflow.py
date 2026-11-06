@@ -8,10 +8,12 @@ This chromium honours --window-size for --screenshot but ignores it for
 layout can only be inspected through a screenshot. Writing the findings onto
 the page is therefore the only way to read them back.
 """
+import os
 import subprocess
 import sys
 
-BASE = "http://127.0.0.1:8899"
+PORT = os.environ.get("PVEPANEL_PORT") or "39205"
+BASE = "http://127.0.0.1:" + PORT
 WEB = "/var/apps/fn-pvepanel/target/web"
 
 PAINT = r"""

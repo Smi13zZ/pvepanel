@@ -8,11 +8,13 @@ render time and is invisible to any static check (the compiler happily emits
 Run on the device (needs chromium + write access to the installed web dir).
 """
 import json
+import os
 import re
 import subprocess
 import sys
 
-BASE = "http://127.0.0.1:8899"
+PORT = os.environ.get("PVEPANEL_PORT") or "39205"
+BASE = "http://127.0.0.1:" + PORT
 VIEWS = [
     ("dash", "?view=dash"),
     ("guests", "?view=guests"),

@@ -209,7 +209,7 @@ def main():
                 fpk = C.newest_fpk()
                 if fpk:
                     try:
-                        port = int(C.fpk_manifest(fpk).get("service_port") or 8899)
+                        port = int(C.fpk_manifest(fpk).get("service_port") or C.DEFAULT_PORT)
                     except Exception:  # noqa: BLE001
                         pass
         url = "http://127.0.0.1:%d/" % port

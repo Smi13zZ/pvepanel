@@ -358,7 +358,7 @@
       "alert.disk_health": "{dev} 报告 {health}",
       "alert.sub_due": "{node} 于 {days} 天后到期",
       "alert.sub_expired": "{node} 订阅已过期",
-      "alert.perm": "部分数据无法读取，请确认 PVEAuditor 授在 / 并开启 propagate",
+      "alert.perm": "部分数据无法读取，请确认 PVEAuditor 授在 / 并勾选「继承」",
       "alert.title.perm": "权限不足",
       "alert.title.no_quorum": "集群失去仲裁",
 
@@ -736,7 +736,7 @@
       "alert.disk_health": "{dev} reports {health}",
       "alert.sub_due": "{node} expires in {days} days",
       "alert.sub_expired": "{node} subscription has expired",
-      "alert.perm": "Some data is unreadable; check that PVEAuditor is granted on / with propagate",
+      "alert.perm": "Some data is unreadable; check that PVEAuditor is granted on / with Propagate checked",
       "alert.title.perm": "Permission denied",
       "alert.title.no_quorum": "Cluster lost quorum",
 

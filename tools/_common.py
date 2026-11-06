@@ -21,6 +21,10 @@ import time
 
 HOST_DEFAULT = "fnos-test"
 
+# Fallback only: the real port always comes from the packed/installed manifest.
+# Kept in one place so a port change never has to be chased through the tools.
+DEFAULT_PORT = 39205
+
 TOOLS_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_DIR = os.path.dirname(TOOLS_DIR)
 SRC_DEFAULT = os.path.join(PROJECT_DIR, "src", "fn-pvepanel")
