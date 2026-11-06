@@ -1,0 +1,14 @@
+# Lifecycle scripts and the CGI shim must have LF on every platform:
+# a CRLF shebang fails with 'bad interpreter' on the device, and a CRLF
+# index.cgi silently breaks the desktop entry.
+*.cgi        text eol=lf
+cmd/*        text eol=lf
+*.sh         text eol=lf
+*.py         text eol=lf
+*.js         text eol=lf
+*.css        text eol=lf
+*.html       text eol=lf
+*.yml        text eol=lf
+*.md         text eol=lf
+*.png        binary
+*.fpk        binary
