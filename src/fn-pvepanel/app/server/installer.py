@@ -487,8 +487,12 @@ fi
 # Give the browser a moment to read the 'installing' state it is polling for.
 sleep 2
 
-printf '%s\n' "wizard_backend_port=$PORT" > "$ENVF" || {
-  echo "=== cannot write the wizard env file, aborting ==="
+# Keep the SAME port across the update: the browser tab that started this
+# update is polling a fixed port and must reconnect to it. That is the one case
+# where pinning the port is correct, so it is passed explicitly rather than left
+# to the app's own remembered value (which the uninstall does not preserve).
+printf '%s\n' "BACKEND_PORT=$PORT" > "$ENVF" || {
+  echo "=== cannot write the env file, aborting ==="
   exit 1
 }
 

@@ -4,17 +4,7 @@
     "items": [
       {
         "type": "tips",
-        "helpText": "PVE 面板自身的访问端口，需为 1-65535 之间的数字。集群地址与 API Token 请在安装完成后进入面板的「设置」页面填写。"
-      },
-      {
-        "type": "text",
-        "field": "wizard_backend_port",
-        "label": "面板端口 (BACKEND_PORT)",
-        "initValue": "8899",
-        "rules": [
-          { "required": true, "message": "请输入面板端口" },
-          { "pattern": "^[0-9]+$", "message": "端口必须是数字" }
-        ]
+        "helpText": "面板端口在首次启动时自动选定（20000–59999 之间的空闲端口）并一直沿用，这里不需要配置，改动它也不会生效。如需更换端口，请在应用中心卸载重装，或直接删除 @appdata/fn-pvepanel/backend-port 后重启应用。"
       }
     ]
   }

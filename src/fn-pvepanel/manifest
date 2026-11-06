@@ -12,5 +12,5 @@ install_type          = root
 install_dep_apps      = 
 desktop_uidir         = ui
 desktop_applaunchname = fn-pvepanel.Application
-service_port          = 1
+service_port          = 24189
 checkport             = false

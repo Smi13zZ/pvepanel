@@ -823,11 +823,33 @@ SETTINGS_LOCK = threading.Lock()
 
 
 def pick_port():
-    for key in ("wizard_backend_port", "BACKEND_PORT", "PVEPANEL_PORT", "PORT"):
+    """Which port to listen on.
+
+    cmd/main decides the port (a fresh random one on first start, remembered in
+    @appdata so it never moves) and passes it in PVEPANEL_PORT. The other names
+    are accepted so the service still works when started by hand.
+
+    There is deliberately no 8899 default: that port is commonly taken, and
+    silently listening somewhere unexpected is worse than failing to start.
+    """
+    for key in ("PVEPANEL_PORT", "BACKEND_PORT", "PORT"):
         v = os.environ.get(key)
         if v and v.strip().isdigit():
-            return int(v.strip())
-    return 8899
+            port = int(v.strip())
+            if 1 <= port <= 65535:
+                return port
+    return int(os.environ.get("PVEPANEL_DEFAULT_PORT") or 0) or _free_port()
+
+
+def _free_port():
+    """Pick an unused local port when nothing told us which one to use."""
+    import socket
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        s.bind(("127.0.0.1", 0))
+        return s.getsockname()[1]
+    finally:
+        s.close()
 
 
 def pick_host():

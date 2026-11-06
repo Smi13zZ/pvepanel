@@ -145,14 +145,31 @@ def main():
             if crud:
                 warnings.append("crud inside app.tgz: %s" % crud)
 
-    src_manifest = os.path.join(C.SRC_DEFAULT, "manifest")
-    if os.path.isfile(src_manifest):
+    # Compare against whatever source manifest is reachable. In this repo that is
+    # src/fn-pvepanel/manifest; C.SRC_DEFAULT also works when the tool runs from a
+    # checkout that has QBPANEL_/SRC-style layout. If neither exists, say so
+    # instead of silently skipping the check - a skipped check that prints
+    # nothing looks identical to a passing one.
+    candidates = [os.path.join(C.SRC_DEFAULT, "manifest"),
+                  os.path.join(C.PROJECT_DIR, "src", "fn-pvepanel", "manifest")]
+    src_manifest = next((c for c in candidates if os.path.isfile(c)), "")
+    if src_manifest:
         src = C.manifest_fields(src_manifest)
         if src.get("version") != manifest.get("version"):
             warnings.append("packed version %s != source manifest %s (stale build?)"
                             % (manifest.get("version"), src.get("version")))
         else:
-            print("\n[version] %s matches src/manifest" % manifest.get("version"))
+            print("\n[version] %s matches %s"
+                  % (manifest.get("version"), os.path.relpath(src_manifest, C.PROJECT_DIR)))
+
+    # The manifest's service_port is only a hint for the app centre's pre-flight
+    # check (checkport=false), but a nonsense value still deserves a warning.
+    try:
+        sp = int(manifest.get("service_port") or 0)
+        if sp != 0 and not (1 <= sp <= 65535):
+            warnings.append("service_port %r is not a valid port number" % sp)
+    except (TypeError, ValueError):
+        warnings.append("service_port %r is not a number" % manifest.get("service_port"))
 
     print("")
     for w in warnings:
