@@ -103,7 +103,7 @@ Mobile (390px):
 
 1. Download the latest `fn-pvepanel-<version>-fnos-all.fpk` from [Releases](../../releases);
 2. fnOS → **App Center** → **Manual install** → pick the file;
-3. The wizard asks for the panel port (leave it empty — the panel picks a free port in 20000–59999);
+3. The wizard already shows the random 5-digit port chosen at build time — accept it;
 4. A **PVEpanel** icon appears on the fnOS desktop.
 
 ### Option 2: install from the command line
@@ -157,15 +157,50 @@ return 403 — they check permissions on the **root** path. The panel reports th
 
 ### Allowing guest power actions
 
-`PVEAuditor` is strictly read-only and **does not include `VM.PowerMgmt`**. Add:
+**A read-only token cannot start or stop anything.** `PVEAuditor` is strictly read-only and does
+not include `VM.PowerMgmt` — calling a power endpoint with it is rejected outright:
+
+```
+POST /nodes/pve9/qemu/300/status/shutdown
+ -> 403 {"message":"Permission check failed (/vms/300, VM.PowerMgmt)"}
+```
+
+Grant `PVEVMAdmin` (which contains `VM.PowerMgmt`) on `/vms`, **to both the user and the token**
+(with `privsep=1` the effective permissions are the intersection):
 
 ```bash
-pveum acl modify /vms --users monitor@pve --roles PVEVMAdmin --propagate 1
+pveum acl modify /vms --users  monitor@pve         --roles PVEVMAdmin --propagate 1
 pveum acl modify /vms --tokens 'monitor@pve!panel' --roles PVEVMAdmin --propagate 1
 ```
 
-Without it the buttons stay visible and say "permission denied" when clicked — easier to diagnose
-than hiding them.
+The complete set — read-only plus power control — is four ACL entries:
+
+```
+/     user  monitor@pve        PVEAuditor   propagate=1
+/     token monitor@pve!panel  PVEAuditor   propagate=1
+/vms  user  monitor@pve        PVEVMAdmin   propagate=1
+/vms  token monitor@pve!panel  PVEVMAdmin   propagate=1
+```
+
+The two root-path `PVEAuditor` grants are not optional: with only `/vms` you can power a guest on
+and off but `/cluster/status` and `/nodes/<node>/disks/smart` return 403, and half the panel stays
+empty.
+
+> **Read-only is fine for most people.** Drop the last two lines and keep just the `PVEAuditor`
+> pair. The power buttons stay visible and answer "permission denied" when clicked, which is easier
+> to diagnose than hiding them.
+
+```bash
+# Check what the token can actually do
+TOKEN='monitor@pve!panel=xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx'
+curl -sk -H "Authorization: PVEAPIToken=$TOKEN" \
+     https://pve:8006/api2/json/cluster/status | head -c 120          # read-only must work
+curl -sk -X POST -H "Authorization: PVEAPIToken=$TOKEN" \
+     https://pve:8006/api2/json/nodes/<node>/qemu/<vmid>/status/start
+```
+
+An `UPID:...` reply means power control is in place; a 403 that mentions `VM.PowerMgmt` means
+`PVEVMAdmin` is still missing.
 
 ---
 
@@ -339,18 +374,22 @@ python tools/preflight.py     # run every CI gate locally
 
 ### Port
 
-The panel does not use a fixed port. On first start it picks a free one in
-**20000–59999**, stores it in `@appdata/fn-pvepanel/backend-port`, and keeps using it
-across restarts, upgrades and reinstalls. That avoids colliding with common ports such as
-8899 and removes one enumerable entry point.
+The panel listens on **39205** by default (no longer 8899). 8899 is already taken on plenty of
+machines, and a monitoring panel that refuses to start because of a port clash is the least
+useful failure mode there is. 39205 sits in the private range, so collisions are far less likely.
 
-To pin a port (for reproducible deployments) override it explicitly:
+The install wizard shows this number pre-filled — just accept it. The port is bound to
+`127.0.0.1` only; the desktop entry reaches the panel through the fnOS login-gated CGI, so
+nothing external can connect to it directly.
 
-```bash
-python tools/deploy.py --env BACKEND_PORT=25000
-```
+| What you want | How |
+|---|---|
+| Use the default | Nothing to do at install time |
+| Pick another during install | Edit the port field in the wizard |
+| Change it afterwards | Uninstall + reinstall, or change the port in the app settings (restarts the service) |
+| A reproducible deployment | `python tools/deploy.py --env BACKEND_PORT=25000` |
 
-> The bundled `deploy.py` / `shot.py` read that file themselves — no port needed.
+> `deploy.py` and `shot.py` read the port out of the package themselves — no need to pass it.
 
 ---
 

@@ -190,12 +190,15 @@ def main():
     if not url:
         port = args.port
         if port is None:
-            # The panel picks a random free port at first start now, so ask the
-            # app what it chose instead of assuming a fixed number.
-            # @appdata is 0700 root:root -> read the port through sudo
-            res = C.ssh(args.host, 'set -u; f="$1/backend-port";'
-                                 ' if sudo test -r "$f"; then sudo cat "$f" | tr -dc 0-9; fi',
-                        args=(C.app_paths("fn-pvepanel")["var"],))
+            # The port is baked into the installed manifest at build time.
+            app = "fn-pvepanel"
+            probe = (
+                'set -u; for f in "/var/apps/$1/manifest" "$2/manifest"; do '
+                "if sudo test -r \"$f\"; then "
+                "sudo awk -F= '/^service_port/ { v = $2; gsub(/[ \\t\\r]/, \"\", v); print v; exit }' \"$f\"; "
+                "exit 0; fi; done"
+            )
+            res = C.ssh(args.host, probe, args=(app, C.app_paths(app)["var"]))
             picked = ""
             for line in (res.out or "").splitlines():
                 if line.strip().isdigit():
@@ -204,7 +207,6 @@ def main():
                 port = int(picked)
             else:
                 fpk = C.newest_fpk()
-                port = 8899
                 if fpk:
                     try:
                         port = int(C.fpk_manifest(fpk).get("service_port") or 8899)

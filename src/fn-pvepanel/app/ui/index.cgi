@@ -26,10 +26,14 @@ if [ -n "${PORT_FILE}" ] && [ -r "${PORT_FILE}" ]; then
     . "${PORT_FILE}"
 fi
 
-# Last-resort: the lifecycle script remembers the chosen port in a sibling file.
-PORT_HINT_FILE=""
-if [ -n "${PORT_FILE}" ]; then
-    PORT_HINT_FILE="${PORT_FILE%/*}/backend-port"
+# Last resort: the port baked into the manifest at build time.
+MANIFEST_FILE=""
+if [ -n "${SCRIPT_FILENAME:-}" ]; then
+    case "${SCRIPT_FILENAME}" in
+        */target/ui/index.cgi) MANIFEST_FILE="${SCRIPT_FILENAME%/target/ui/index.cgi}/manifest" ;;
+    esac
+elif [ -n "${cgiName:-}" ]; then
+    MANIFEST_FILE="/var/apps/${cgiName}/manifest"
 fi
 
 TARGET_HOST="${ADMIN_TARGET_HOST:-127.0.0.1}"
@@ -40,23 +44,17 @@ elif [ -n "${BACKEND_PORT:-}" ]; then
     TARGET_PORT="${BACKEND_PORT}"
 elif [ -n "${wizard_backend_port:-}" ] && [ "${wizard_backend_port}" != "0" ]; then
     TARGET_PORT="${wizard_backend_port}"
-elif [ -n "${PORT_HINT_FILE}" ] && [ -r "${PORT_HINT_FILE}" ]; then
-    TARGET_PORT="$(tr -dc '0-9' < "${PORT_HINT_FILE}" 2>/dev/null)"
+elif [ -n "${MANIFEST_FILE}" ] && [ -r "${MANIFEST_FILE}" ]; then
+    TARGET_PORT="$(awk -F= '/^service_port/ { v = $2; gsub(/[ \t\r]/, "", v); print v; exit }' "${MANIFEST_FILE}" 2>/dev/null)"
 else
     TARGET_PORT=""
 fi
 
-if [ -z "${TARGET_PORT:-}" ]; then
-    printf "Status: 503 Service Unavailable
-"
-    printf "Content-Type: text/plain; charset=utf-8
-"
-    printf "Cache-Control: no-store
+# The panel's port is fixed at 39205 by default (see cmd/main and the manifest).
+DEFAULT_PORT=39205
 
-"
-    printf "面板端口尚未确定，请在应用中心重启一次该应用。
-"
-    exit 0
+if [ -z "${TARGET_PORT:-}" ]; then
+    TARGET_PORT="${DEFAULT_PORT}"
 fi
 
 REQ_URI="${REQUEST_URI:-}"

@@ -15,74 +15,47 @@ APP_HOME="${TRIM_APPDEST:-}"
 PID_FILE="${PKG_VAR}/pvepanel.pid"
 LOG_FILE="${PKG_VAR}/pvepanel.log"
 PORTS_FILE="${PKG_VAR}/runtime-ports.env"
-# The default port is randomised on purpose. A fixed port would be the same on
-# every installation on the same network segment, so a scan of the LAN finds the
-# panel, and two fnOS boxes would fight over it. A random free port in
-# 20000-59999 is picked at first start and remembered in runtime-ports.env, so
-# it stays stable across restarts.
-PORT_FILE="${PKG_VAR}/backend-port"
-DEFAULT_PORT=""
+
+# The panel listens on 39205 by default. 8899 was taken on enough machines to be
+# a support question, and a monitor that fails to bind should not be something
+# anyone has to debug. The number is fixed so the docs, the wizard and the tools
+# all agree; override it with wizard_backend_port or BACKEND_PORT when needed.
+# Kept in sync with manifest service_port and wizard/install initValue.
+DEFAULT_PORT=39205
 
 mkdir -p "${PKG_VAR}" 2>/dev/null || true
 
-pick_random_port() {
-    # A port that is free right now, unprivileged, and away from the usual
-    # defaults (8006 pveproxy, 8080, 8888, 9090, 8899 ...).
-    #
-    # awk's srand() with no argument seeds from the clock in WHOLE seconds, so
-    # two runs in the same second produce the same "random" port; a fresh
-    # install then lands on the old one, which is exactly the collision this is
-    # meant to avoid. Seed explicitly from pid+nanoseconds, and also refuse to
-    # hand back the value the previous start used.
-    local tries=0 candidate previous=""
-    if [ -r "${PORT_FILE}" ]; then
-        previous="$(tr -dc '0-9' < "${PORT_FILE}" 2>/dev/null)"
-    fi
-    while [ "${tries}" -lt 80 ]; do
-        candidate="$(awk -v seed="$-$(date +%s%N)-${tries}" '
-            BEGIN {
-                s = 0
-                for (i = 1; i <= length(seed); i++) s = (s * 31 + index("0123456789-", substr(seed, i, 1))) % 1000003
-                srand(s)
-                printf "%d", 20000 + int(rand() * 40000)
-            }')"
-        case "${candidate}" in
-            ''|*[!0-9]*) candidate="" ;;
-        esac
-        if [ -n "${candidate}" ] && [ "${candidate}" != "${previous}" ] \
-           && ! (exec 3<>"/dev/tcp/127.0.0.1/${candidate}") 2>/dev/null; then
-            printf '%s\n' "${candidate}"
-            return 0
-        fi
-        exec 3<&- 3>&- 2>/dev/null || true
-        tries=$((tries + 1))
-        sleep 0.05 2>/dev/null || true
-    done
-    printf '%s\n' "24189"
+manifest_field() {
+    local f k v
+    f="$(dirname "$0")/../manifest"
+    [ -r "${f}" ] || return 1
+    k="$1"
+    v="$(awk -F= -v key="${k}" '
+        { n = $1; gsub(/[ \t\r]/, "", n); if (n == key) { val = $2; gsub(/[ \t\r]/, "", val); print val; exit } }
+    ' "${f}" 2>/dev/null)"
+    [ -n "${v}" ] && printf '%s\n' "${v}"
 }
 
-# The port is chosen once and then remembered.
-#
-# wizard_backend_port is deliberately NOT consulted, even though the install
-# wizard used to set it: appcenter replays the install-time answer on every
-# start (verified by wrapping cmd/main and dumping env), so honouring it would
-# freeze the very first port forever - deleting the remembered file could not
-# change it. Only an explicit BACKEND_PORT pins the port, which is what
-# tools/deploy.py --env uses for a reproducible deployment.
-if [ -n "${BACKEND_PORT:-}" ] && [ "${BACKEND_PORT}" != "0" ]; then
+# Precedence, highest first:
+#   wizard_backend_port  the install-time answer, if the operator typed one
+#   BACKEND_PORT         an explicit override (tools/deploy.py --env)
+#   manifest service_port the packaged default (39205)
+#   DEFAULT_PORT         the same number, when the manifest cannot be read
+PORT=""
+if [ -n "${wizard_backend_port:-}" ] && [ "${wizard_backend_port}" != "0" ]; then
+    PORT="${wizard_backend_port}"
+elif [ -n "${BACKEND_PORT:-}" ] && [ "${BACKEND_PORT}" != "0" ]; then
     PORT="${BACKEND_PORT}"
-elif [ -r "${PORT_FILE}" ] && [ -s "${PORT_FILE}" ]; then
-    PORT="$(cat "${PORT_FILE}" 2>/dev/null | tr -dc '0-9')"
 else
-    PORT="$(pick_random_port)"
+    PORT="$(manifest_field service_port || true)"
 fi
+[ -n "${PORT}" ] || PORT="${DEFAULT_PORT}"
 
-# An empty or nonsense port falls back to a fresh random one rather than 8899.
 case "${PORT}" in
-    ''|*[!0-9]*) PORT="$(pick_random_port)" ;;
+    ''|*[!0-9]*) PORT="${DEFAULT_PORT}" ;;
 esac
 if [ "${PORT}" -lt 1024 ] || [ "${PORT}" -gt 65535 ]; then
-    PORT="$(pick_random_port)"
+    PORT="${DEFAULT_PORT}"
 fi
 
 SERVER="${APP_HOME}/server/pvepanel.py"
@@ -154,10 +127,9 @@ rotate_log() {
 
 start() {
     if is_running; then
-        # Already up. Touch NOTHING: whatever is in PORT_FILE was written by the
-        # run that is currently serving, and recomputing it here is how the file
-        # and the live socket drifted apart (index.cgi then forwarded to a dead
-        # port while the service itself was perfectly healthy).
+        # Already up: refresh the port file for index.cgi and leave everything
+        # else alone. The port is stable, so this is always the same value.
+        write_runtime_ports
         return 0
     fi
 
@@ -175,10 +147,6 @@ start() {
     fi
 
     rotate_log
-    # Written here and nowhere else: from this moment PORT_FILE describes the
-    # process that is about to start.
-    printf '%s\n' "${PORT}" > "${PORT_FILE}" 2>/dev/null || true
-    chmod 600 "${PORT_FILE}" 2>/dev/null || true
     write_runtime_ports
 
     cd "${APP_HOME}/server" || return 1

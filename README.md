@@ -102,7 +102,7 @@ Bark / Server 酱 / PushPlus / WxPusher / Telegram / 企业微信机器人 / 钉
 
 1. 到本仓库的 [Releases](../../releases) 页面下载最新的 `fn-pvepanel-<版本>-fnos-all.fpk`；
 2. 打开飞牛 fnOS → **应用中心** → **手动安装**，选择刚下载的 fpk；
-3. 安装向导会让你填面板端口（留空即可，面板会自己在 20000–59999 里挑一个空闲端口）；
+3. 安装向导里已经预填好一个随机的 5 位端口，直接沿用即可；
 4. 装好后飞牛桌面会出现 **PVEpanel** 图标，点开即用。
 
 ### 方式二：命令行安装
@@ -155,14 +155,48 @@ pveum acl modify / --tokens 'monitor@pve!panel' --roles PVEAuditor --propagate 1
 
 ### 想让面板启停虚拟机
 
-`PVEAuditor` 是纯只读，**不含 `VM.PowerMgmt`**。要启停就再给一条：
+**只读令牌不能启停。** `PVEAuditor` 是纯只读角色，不含 `VM.PowerMgmt`——
+用它去调 `status/start|stop|shutdown|reboot` 会被 PVE 明确拒绝：
+
+```
+POST /nodes/pve9/qemu/300/status/shutdown
+ -> 403 {"message":"Permission check failed (/vms/300, VM.PowerMgmt)"}
+```
+
+要启停，就在 `/vms` 上再追加 `PVEVMAdmin`（它含 `VM.PowerMgmt`）。
+**用户和 Token 各授一遍**（`privsep=1` 时权限取交集）：
 
 ```bash
-pveum acl modify /vms --users monitor@pve --roles PVEVMAdmin --propagate 1
+pveum acl modify /vms --users  monitor@pve        --roles PVEVMAdmin --propagate 1
 pveum acl modify /vms --tokens 'monitor@pve!panel' --roles PVEVMAdmin --propagate 1
 ```
 
-没有这条权限时按钮不会消失，点了会明确提示「权限不足」，比藏起来更好排查。
+完整的一套（只读 + 启停）就是四条 ACL：
+
+```
+/     user  monitor@pve        PVEAuditor   propagate=1
+/     token monitor@pve!panel  PVEAuditor   propagate=1
+/vms  user  monitor@pve        PVEVMAdmin   propagate=1
+/vms  token monitor@pve!panel  PVEVMAdmin   propagate=1
+```
+
+两条根路径的 `PVEAuditor` 不能省——只授 `/vms` 的话能关机，但 `/cluster/status`、
+`/nodes/<node>/disks/smart` 会 403，面板一半的数据读不出来。
+
+> **只想看不想动？** 那四条里去掉后两条即可，只留两个 `PVEAuditor`。
+> 没有权限时启停按钮不会消失，点了会明确提示「权限不足」，比藏起来更好排查。
+
+```bash
+# 验证拿到的权限到底够不够（把 token 换成你自己的）
+TOKEN='monitor@pve!panel=xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx'
+curl -sk -H "Authorization: PVEAPIToken=$TOKEN" \
+     https://192.168.1.3:8006/api2/json/cluster/status | head -c 120   # 只读要通
+curl -sk -X POST -H "Authorization: PVEAPIToken=$TOKEN" \
+     https://192.168.1.3:8006/api2/json/nodes/<node>/qemu/<vmid>/status/start
+```
+
+第二条返回一个 `UPID:...` 就说明启停权限到位了；返回 403 且带 `VM.PowerMgmt`
+就是还差 `PVEVMAdmin`。
 
 ---
 
@@ -324,17 +358,20 @@ python tools/preflight.py     # 跑齐 CI 的全部闸门
 
 ### 端口
 
-面板的端口不是固定值：首次启动时在 **20000–59999** 里随机挑一个当前空闲的，
-写进 `@appdata/fn-pvepanel/backend-port`，之后一直使用（重启、升级、重装都不变）。
-这样不会和 8899 这类常用端口撞车，也少一个可枚举的入口。
+面板默认监听 **39205**（不再是 8899）。8899 在很多机器上已经被别的服务占着，
+监控面板因为端口冲突起不来是最没必要的故障；39205 落在私有端口段里，撞车的概率低得多。
 
-需要固定端口时（例如做可重复的部署），显式传环境变量即可覆盖：
+安装向导里已经预填好这个号，直接沿用即可。端口**只在本机 `127.0.0.1` 监听**，
+桌面入口是通过飞牛登录校验之后的 CGI 转发进来的，外部无法直连。
 
-```bash
-python tools/deploy.py --env BACKEND_PORT=25000
-```
+| 想做什么 | 怎么做 |
+|---|---|
+| 用默认端口 | 安装时什么都不用改 |
+| 装的时候换一个 | 在安装向导的端口输入框里改成你要的号 |
+| 装完再换 | 应用中心卸载重装，或在应用设置里改端口（会重启服务） |
+| 可重复的部署 | `python tools/deploy.py --env BACKEND_PORT=25000` |
 
-> 内置的 `deploy.py` / `shot.py` 会自动读取这个文件，不需要手动指定端口。
+> 内置的 `deploy.py` / `shot.py` 会自己从安装包里读出端口，不需要手动指定。
 
 ---
 

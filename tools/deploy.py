@@ -63,12 +63,16 @@ sudo appcenter-cli status "$APP" 2>&1 | tail -2 || true
 
 
 # Positional args: 1=pkgvar  -- the port the lifecycle script remembered
-# @appdata is 0700 root:root, so an unprivileged test -r says nothing - the
-# same trap the log file had. Read it through sudo and let the emptiness speak.
+# The port is baked into the manifest at build time and never moves, so read it
+# from the installed copy - that is what the running app uses.
 PORT_PROBE = r"""set -u
-VAR="$1"
-f="$VAR/backend-port"
-if sudo test -r "$f"; then sudo cat "$f" | tr -dc '0-9'; fi
+APP="$1"
+for f in "/var/apps/$APP/manifest" "$2/manifest"; do
+    if sudo test -r "$f"; then
+        sudo awk -F= '/^service_port/ { v = $2; gsub(/[ 	]/, "", v); print v; exit }' "$f"
+        exit 0
+    fi
+done
 echo ""
 """
 
@@ -113,9 +117,9 @@ sudo env REQUEST_METHOD=GET \
 """
 
 
-def probe_remembered_port(host, var_dir):
-    """The port the lifecycle script saved, or 0 when there is none yet."""
-    res = C.ssh(host, PORT_PROBE, args=(var_dir,))
+def probe_remembered_port(host, var_dir, app="fn-pvepanel"):
+    """The port baked into the installed manifest, or 0 when unknown."""
+    res = C.ssh(host, PORT_PROBE, args=(app, var_dir))
     text = (res.out or "").strip().splitlines()
     for line in text:
         line = line.strip()
@@ -148,10 +152,9 @@ def main():
 
     man = C.fpk_manifest(fpk)
     app = args.app or man.get("appname") or "fn-pvepanel"
-    # service_port in the manifest is a port-conflict hint for the app centre,
-    # not the port the panel listens on (checkport=false, and the port is picked
-    # at first start). Never use it as the thing to poll.
-    port = args.port or 0
+    # The manifest's service_port IS the port the panel listens on: it is baked
+    # in at build time and the install wizard pre-fills it.
+    port = args.port or int(man.get("service_port") or 0)
     paths = C.app_paths(app)
 
     env_pairs = []
@@ -179,12 +182,14 @@ def main():
         print("port   %d (pinned via --port)" % port)
         env_pairs.insert(0, ("BACKEND_PORT", str(port)))
     else:
-        remembered = probe_remembered_port(args.host, paths["var"])
+        remembered = probe_remembered_port(args.host, paths["var"], app)
         if remembered:
             port = remembered
-            print("port   %d (remembered by the running app)" % port)
+            print("port   %d (baked into the installed manifest)" % port)
+        elif port:
+            print("port   %d (from the package manifest)" % port)
         else:
-            print("port   random (the app will pick a free one)")
+            print("port   unknown (the package manifest carries no service_port)")
             port = None
 
     print("deploy %s -> %s" % (os.path.basename(fpk), args.host))
