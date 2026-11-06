@@ -151,10 +151,11 @@ def main():
     # instead of silently skipping the check - a skipped check that prints
     # nothing looks identical to a passing one.
     candidates = [os.path.join(C.SRC_DEFAULT, "manifest"),
-                  os.path.join(C.PROJECT_DIR, "src", "fn-pvepanel", "manifest")]
+                  os.path.join(C.PROJECT_DIR, "src", "fn-pvepanel", "manifest"),
+                  os.path.join(os.getcwd(), "src", "fn-pvepanel", "manifest")]
     src_manifest = next((c for c in candidates if os.path.isfile(c)), "")
     if src_manifest:
-        src = C.manifest_fields(src_manifest)
+        src = C.manifest_fields(src_manifest)  # noqa: F841
         if src.get("version") != manifest.get("version"):
             warnings.append("packed version %s != source manifest %s (stale build?)"
                             % (manifest.get("version"), src.get("version")))
