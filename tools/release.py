@@ -28,6 +28,9 @@ import time
 import urllib.error
 import urllib.request
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import _common as C  # noqa: E402
+
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 REPO_DEFAULT = "Smi13zZ/pvepanel"
 GCM = r"C:\Users\PVE\AppData\Local\Programs\Git\ucrt64\bin\git-credential-manager.exe"
@@ -89,6 +92,40 @@ def wait_for_run(api, repo, tag, timeout=1200):
     return None
 
 
+def read_panel_update(args):
+    """Ask the deployed panel what release it can see.
+
+    Two routes, because the NAS blocks the obvious one: SSH remote forwarding is
+    disabled there ("administratively prohibited"), so a -L tunnel never comes
+    up.  --via-ssh runs curl on the box itself against its loopback port, which
+    also exercises the real deployment instead of a forwarded socket.
+    """
+    if args.via_ssh:
+        port = C.DEFAULT_PORT
+        probe = (
+            'set -u; for f in "/var/apps/$1/manifest" "$2/manifest"; do '
+            'if sudo test -r "$f"; then '
+            'sudo awk -F= \'/^service_port/ { v = $2; gsub(/[ \\t\\r]/, "", v); print v; exit }\' "$f"; '
+            'exit 0; fi; done'
+        )
+        res = C.ssh(args.via_ssh, probe, args=("fn-pvepanel",
+                                               C.app_paths("fn-pvepanel")["var"]))
+        for line in (res.out or "").splitlines():
+            if line.strip().isdigit():
+                port = int(line.strip())
+        body = C.ssh(args.via_ssh,
+                     'curl -s --max-time 120 "http://127.0.0.1:%s/api/update/check?force=1"'
+                     % port)
+        text = (body.out or "").strip()
+        if not text:
+            raise RuntimeError("no response from the panel on %s:%d (stderr: %s)"
+                               % (args.via_ssh, port, (body.err or "").strip()[:200]))
+        return json.loads(text)
+    with urllib.request.urlopen(
+            args.panel + "/api/update/check?force=1", timeout=120) as r:
+        return json.loads(r.read().decode())
+
+
 def main():
     ap = argparse.ArgumentParser(description="Verify a published PVEpanel release")
     ap.add_argument("tag", help="release tag, e.g. v26.11.7")
@@ -98,6 +135,10 @@ def main():
                          "(default: $PVEPANEL_URL or a tunnel on :18899)")
     ap.add_argument("--skip-panel", action="store_true",
                     help="skip the on-device update-check probe")
+    ap.add_argument("--via-ssh", metavar="HOST", default=None,
+                    help="run the update check on HOST over SSH instead of reaching "
+                         "the panel from here. Needed where SSH port forwarding is "
+                         "prohibited (fnos-test refuses -L tunnels).")
     args = ap.parse_args()
 
     api = Api()
@@ -170,9 +211,7 @@ def main():
         print("  skipped")
     else:
         try:
-            with urllib.request.urlopen(
-                    args.panel + "/api/update/check?force=1", timeout=120) as r:
-                info = json.loads(r.read().decode())
+            info = read_panel_update(args)
             print("  current=%s latest=%s has_update=%s source=%s" % (
                 info.get("current"), info.get("latest"),
                 info.get("has_update"), info.get("source")))
