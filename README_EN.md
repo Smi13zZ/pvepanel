@@ -134,12 +134,12 @@ There are two ways to create it. **The web UI is quicker**, so start there.
 ### Option 1: the web UI (recommended)
 
 Open `https://<pve-host>:8006` and log in as `root@pam`. Select **Datacenter** in the left tree,
-then **Permissions**. A row of tabs appears: **Permissions / Users / API Tokens / Groups / Pools /
-Roles / Realms**. All four steps happen right there.
+then click **Permissions** in the navigation tree on the left. It expands to **Users / API Tokens /
+Groups / Pools / Roles / Realms**, and all four steps below happen inside that group.
 
 #### 1. Create a dedicated user
 
-Go to the **Users** tab and click **Add**:
+Click **Users** on the left, then **Add** above the table:
 
 | Field | Value |
 |---|---|
@@ -150,7 +150,7 @@ Go to the **Users** tab and click **Add**:
 
 #### 2. Grant the user read-only access
 
-Go to the **Permissions** tab, click **Add**, and choose **User Permission**:
+Click **Permissions** itself on the left, click **Add**, and choose **User Permission**:
 
 | Field | Value |
 |---|---|
@@ -161,7 +161,7 @@ Go to the **Permissions** tab, click **Add**, and choose **User Permission**:
 
 #### 3. Create the API token
 
-Go to the **API Tokens** tab and click **Add**:
+Click **API Tokens** on the left, then **Add** above the table:
 
 | Field | Value |
 |---|---|
@@ -187,7 +187,7 @@ That whole string is what goes into the panel's **API Token** field.
 #### 4. Grant the token as well
 
 With Privilege Separation on, a token's effective permissions are **user ACL ∩ token ACL**, so both
-sides need the role. Go back to the **Permissions** tab, click **Add**, and choose
+sides need the role. Go back to **Permissions** on the left, click **Add**, and choose
 **API Token Permission**:
 
 | Field | Value |
