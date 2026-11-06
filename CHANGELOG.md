@@ -1,5 +1,16 @@
 # 更新日志
 
+## 26.11.9
+
+**修复**
+
+- 打包校验（CI 的 Verify the package 步骤）失败时不给任何原因，现在会打印完整检查结果与退出码。
+- `inspect_fpk` 在不同工作目录下会静默跳过「包内版本 vs 源码版本」的比对，现在会找到那份 manifest。
+
+**改进**
+
+- 构建用的 GitHub Actions 升级到 checkout v5 / setup-python v6 / upload-artifact v5。
+
 ## 26.11.8
 
 **改进**
