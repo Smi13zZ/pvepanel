@@ -741,6 +741,8 @@ canvas { display: block; width: 100%; height: 100%; }
 .vstext { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1 1 180px; }
 .vstext b { font-size: 13.5px; font-weight: 600; }
 .vstext span { font-size: 12px; color: var(--dim); }
+/* 桌面端：这一层不参与布局，两个按钮直接作为 .vstatus 的 flex 项排在文字右边。 */
+.vactions { display: contents; }
 
 /* One-click update overlay. The install stops the service, so the page WILL
    go dark; this stays up until the panel answers again. The progress block
@@ -903,12 +905,18 @@ canvas { display: block; width: 100%; height: 100%; }
 
   .vhero { padding: 14px 10px; gap: 10px; }
   .vv { font-size: 21px; }
-  .vstatus { gap: 10px; }
-  /* Phone: the headline takes the full first row and the buttons drop to a
-     second, full-width row (thumb reach). Sharing one row squeezes the text
-     against the buttons until the title wraps mid-phrase. */
-  .vstext { flex: 1 1 100%; order: 2; }
-  .vstatus .btn { order: 3; flex: 1 1 auto; }
+  /* Phone: the icon and the two headline lines share the first row (the text
+     takes the remaining width), and the buttons drop to a second, full-width
+     row. Inside that row the two buttons split it evenly, so "check" and
+     "one-click update" sit side by side; with only "check" it spans the row. */
+  .vstatus { gap: 10px; row-gap: 12px; }
+  .vstatus > .spacer { display: none; }
+  .vsic { order: 1; }
+  .vstext { flex: 1 1 0; order: 2; min-width: 0; }
+  .vstatus .vactions {
+    display: flex; order: 3; flex: 0 0 100%; gap: 8px; min-width: 0;
+  }
+  .vstatus .vactions .btn { flex: 1 1 0; min-width: 0; }
   .upoverlay-box { padding: 18px 16px 14px; }
 
   /* backup table: filename gets the room, size moves under it */
