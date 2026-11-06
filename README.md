@@ -108,7 +108,7 @@ Bark / Server 酱 / PushPlus / WxPusher / Telegram / 企业微信机器人 / 钉
 ### 方式二：命令行安装
 
 ```bash
-appcenter-cli install-fpk /path/to/fn-pvepanel-26.11.7-fnos-all.fpk
+appcenter-cli install-fpk /path/to/fn-pvepanel-26.11.11-fnos-all.fpk
 ```
 
 > `appcenter-cli` 安装时必须提供环境变量文件（`-e`）；它**不会覆盖已安装的同名应用**，

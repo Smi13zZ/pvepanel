@@ -1,27 +1,21 @@
 # 更新日志
 
-## 26.11.10
+## 26.11.11
 
 **修复**
 
-- 打包校验（CI 的 Verify the package 步骤）失败时不给原因：现在 `inspect_fpk` 每个失败当场打印，
-  workflow 再把 FAIL/WARN 行转成 GitHub 注解，失败原因在 Actions 页面上直接可见。
+- **打包校验失败却看不到原因**：CI 的 Verify the package 步骤连红两次都没有输出。
+  现在 `inspect_fpk` 每发现一个失败就当场打印，workflow 再把 FAIL/WARN 转成 GitHub 注解，
+  并把完整检查结果作为 artifact 上传——失败原因在 Actions 页面上直接可读。
+- **`app/ui/index.cgi` 混着 CRLF**：文件里同时有 4 个 CRLF 和其余 LF。本地打包脚本会
+  统一剥离，所以本地包一直正常；CI 的暂存步骤没有这一步，CRLF 直接进了安装包，
+  装到设备上会报 `bad interpreter`。现在源文件统一为 LF，新增 `.gitattributes`
+  约束脚本与代码一律 `eol=lf`（图片与 fpk 标为 binary），CI 暂存步骤也补上了同样的剥离。
 
 **改进**
 
 - 构建用的 GitHub Actions 升级到 checkout v5 / setup-python v6 / upload-artifact v5，
-  去掉 Node 20 弃用告警；失败时额外上传一份校验诊断文件。
-
-## 26.11.9
-
-**修复**
-
-- 打包校验（CI 的 Verify the package 步骤）失败时不给任何原因，现在会打印完整检查结果与退出码。
-- `inspect_fpk` 在不同工作目录下会静默跳过「包内版本 vs 源码版本」的比对，现在会找到那份 manifest。
-
-**改进**
-
-- 构建用的 GitHub Actions 升级到 checkout v5 / setup-python v6 / upload-artifact v5。
+  去掉 Node 20 弃用告警。
 
 ## 26.11.8
 

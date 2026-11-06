@@ -109,7 +109,7 @@ Mobile (390px):
 ### Option 2: install from the command line
 
 ```bash
-appcenter-cli install-fpk /path/to/fn-pvepanel-26.11.7-fnos-all.fpk
+appcenter-cli install-fpk /path/to/fn-pvepanel-26.11.11-fnos-all.fpk
 ```
 
 > `appcenter-cli` requires the environment file (`-e`) and **will not overwrite an installed app** —
