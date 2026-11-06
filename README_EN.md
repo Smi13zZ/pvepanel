@@ -103,14 +103,13 @@ Mobile (390px):
 
 1. Download the latest `fn-pvepanel-<version>-fnos-all.fpk` from [Releases](../../releases);
 2. fnOS → **App Center** → **Manual install** → pick the file;
-3. The wizard asks for the panel port (default **8899**);
+3. The wizard asks for the panel port (leave it empty — the panel picks a free port in 20000–59999);
 4. A **PVEpanel** icon appears on the fnOS desktop.
 
 ### Option 2: install from the command line
 
 ```bash
-printf 'wizard_backend_port=8899\n' > /tmp/pvepanel.env
-appcenter-cli install-fpk -e /tmp/pvepanel.env /path/to/fn-pvepanel-26.11.7-fnos-all.fpk
+appcenter-cli install-fpk /path/to/fn-pvepanel-26.11.7-fnos-all.fpk
 ```
 
 > `appcenter-cli` requires the environment file (`-e`) and **will not overwrite an installed app** —
@@ -318,8 +317,8 @@ src/fn-pvepanel/
 ├── manifest                 # package name, version, port, platform
 ├── ICON.PNG / ICON_256.PNG  # application icons (64 / 256)
 ├── config/                  # run-as identity (root), shared-folder declaration
-├── wizard/                  # install wizard (panel port)
-├── cmd/main                 # lifecycle script: start / stop / status
+├── wizard/                  # install wizard (explains the automatic port)
+├── cmd/main                 # lifecycle: start / stop / status, picks the port too
 └── app/
     ├── server/              # pvepanel.py (HTTP + routes), collector.py (collection + cache),
     │                        # pveclient.py (connection pool), store.py (config + tokens),
@@ -337,6 +336,21 @@ python tools/build_fpk.py     # structure check, then package
 python tools/deploy.py        # uninstall, install, start, probe
 python tools/preflight.py     # run every CI gate locally
 ```
+
+### Port
+
+The panel does not use a fixed port. On first start it picks a free one in
+**20000–59999**, stores it in `@appdata/fn-pvepanel/backend-port`, and keeps using it
+across restarts, upgrades and reinstalls. That avoids colliding with common ports such as
+8899 and removes one enumerable entry point.
+
+To pin a port (for reproducible deployments) override it explicitly:
+
+```bash
+python tools/deploy.py --env BACKEND_PORT=25000
+```
+
+> The bundled `deploy.py` / `shot.py` read that file themselves — no port needed.
 
 ---
 

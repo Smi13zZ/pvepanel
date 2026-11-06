@@ -102,14 +102,13 @@ Bark / Server 酱 / PushPlus / WxPusher / Telegram / 企业微信机器人 / 钉
 
 1. 到本仓库的 [Releases](../../releases) 页面下载最新的 `fn-pvepanel-<版本>-fnos-all.fpk`；
 2. 打开飞牛 fnOS → **应用中心** → **手动安装**，选择刚下载的 fpk；
-3. 安装向导会让你填面板端口（默认 **8899**，被占用时换一个即可）；
+3. 安装向导会让你填面板端口（留空即可，面板会自己在 20000–59999 里挑一个空闲端口）；
 4. 装好后飞牛桌面会出现 **PVEpanel** 图标，点开即用。
 
 ### 方式二：命令行安装
 
 ```bash
-printf 'wizard_backend_port=8899\n' > /tmp/pvepanel.env
-appcenter-cli install-fpk -e /tmp/pvepanel.env /path/to/fn-pvepanel-26.11.7-fnos-all.fpk
+appcenter-cli install-fpk /path/to/fn-pvepanel-26.11.7-fnos-all.fpk
 ```
 
 > `appcenter-cli` 安装时必须提供环境变量文件（`-e`）；它**不会覆盖已安装的同名应用**，
@@ -303,8 +302,8 @@ src/fn-pvepanel/
 ├── manifest                 # 应用元信息：包名、版本、端口、平台
 ├── ICON.PNG / ICON_256.PNG  # 应用图标（64 / 256）
 ├── config/                  # 运行身份（root）与应用文件夹声明
-├── wizard/                  # 安装向导（面板端口）
-├── cmd/main                 # 生命周期脚本：start / stop / status
+├── wizard/                  # 安装向导（说明端口是自动挑选的）
+├── cmd/main                 # 生命周期脚本：start / stop / status，并负责选端口
 └── app/
     ├── server/              # pvepanel.py（HTTP 服务与路由）、collector.py（采集与缓存）、
     │                        # pveclient.py（连接池）、store.py（配置与 Token）、
@@ -322,6 +321,20 @@ python tools/build_fpk.py     # 结构检查 → 打包
 python tools/deploy.py        # 卸载旧版 → 装新版 → 起服务 → 探活
 python tools/preflight.py     # 跑齐 CI 的全部闸门
 ```
+
+### 端口
+
+面板的端口不是固定值：首次启动时在 **20000–59999** 里随机挑一个当前空闲的，
+写进 `@appdata/fn-pvepanel/backend-port`，之后一直使用（重启、升级、重装都不变）。
+这样不会和 8899 这类常用端口撞车，也少一个可枚举的入口。
+
+需要固定端口时（例如做可重复的部署），显式传环境变量即可覆盖：
+
+```bash
+python tools/deploy.py --env BACKEND_PORT=25000
+```
+
+> 内置的 `deploy.py` / `shot.py` 会自动读取这个文件，不需要手动指定端口。
 
 ---
 

@@ -62,6 +62,17 @@ sudo appcenter-cli status "$APP" 2>&1 | tail -2 || true
 """
 
 
+# Positional args: 1=pkgvar  -- the port the lifecycle script remembered
+# @appdata is 0700 root:root, so an unprivileged test -r says nothing - the
+# same trap the log file had. Read it through sudo and let the emptiness speak.
+PORT_PROBE = r"""set -u
+VAR="$1"
+f="$VAR/backend-port"
+if sudo test -r "$f"; then sudo cat "$f" | tr -dc '0-9'; fi
+echo ""
+"""
+
+
 # Positional args: 1=app 2=port 3=pkgvar
 PROBE = r"""set -u
 APP="$1"; PORT="$2"; VAR="$3"
@@ -102,13 +113,28 @@ sudo env REQUEST_METHOD=GET \
 """
 
 
+def probe_remembered_port(host, var_dir):
+    """The port the lifecycle script saved, or 0 when there is none yet."""
+    res = C.ssh(host, PORT_PROBE, args=(var_dir,))
+    text = (res.out or "").strip().splitlines()
+    for line in text:
+        line = line.strip()
+        if line.isdigit():
+            value = int(line)
+            if 1 <= value <= 65535:
+                return value
+    return 0
+
+
 def main():
     C.setup_stdio()
     ap = argparse.ArgumentParser(description="Deploy fn-pvepanel fpk to fnOS")
     ap.add_argument("--host", default=C.HOST_DEFAULT)
     ap.add_argument("--fpk", default=None, help="fpk path (default: newest in output/)")
     ap.add_argument("--app", default=None, help="appname (default: read from the fpk manifest)")
-    ap.add_argument("--port", type=int, default=None, help="port to poll (default: service_port in manifest)")
+    ap.add_argument("--port", type=int, default=None,
+                    help="port to poll (default: the port the app remembered, "
+                         "falling back to service_port in the manifest)")
     ap.add_argument("--env", action="append", default=[], metavar="K=V",
                     help="wizard env, repeatable (default: wizard_backend_port=<port>)")
     ap.add_argument("--no-uninstall", action="store_true", help="do not stop/uninstall first (clean box)")
@@ -122,7 +148,10 @@ def main():
 
     man = C.fpk_manifest(fpk)
     app = args.app or man.get("appname") or "fn-pvepanel"
-    port = args.port or int(man.get("service_port") or 8899)
+    # service_port in the manifest is a port-conflict hint for the app centre,
+    # not the port the panel listens on (checkport=false, and the port is picked
+    # at first start). Never use it as the thing to poll.
+    port = args.port or 0
     paths = C.app_paths(app)
 
     env_pairs = []
@@ -130,11 +159,36 @@ def main():
         if "=" not in item:
             C.fail("--env expects KEY=VALUE, got %r" % item)
         env_pairs.append(tuple(item.split("=", 1)))
-    if not any(k == "wizard_backend_port" for k, _ in env_pairs):
-        env_pairs.insert(0, ("wizard_backend_port", str(port)))
+    # The panel now chooses a random free port unless the wizard is given one.
+    # For a reinstall we therefore reuse whatever the running app remembered,
+    # otherwise every deploy would move the port and the probe would fail.
+    explicit_port = args.port is not None
+    # An explicit BACKEND_PORT (or --port) always wins: that is the whole point
+    # of pinning. Otherwise reuse whatever the running app remembered, and if
+    # there is nothing remembered let the app pick.
+    pinned = any(k == "BACKEND_PORT" for k, _ in env_pairs)
+    if pinned:
+        for k, v in env_pairs:
+            if k == "BACKEND_PORT":
+                try:
+                    port = int(v)
+                except ValueError:
+                    C.fail("BACKEND_PORT must be a number, got %r" % v)
+        print("port   %d (pinned via --env BACKEND_PORT)" % port)
+    elif explicit_port:
+        print("port   %d (pinned via --port)" % port)
+        env_pairs.insert(0, ("BACKEND_PORT", str(port)))
+    else:
+        remembered = probe_remembered_port(args.host, paths["var"])
+        if remembered:
+            port = remembered
+            print("port   %d (remembered by the running app)" % port)
+        else:
+            print("port   random (the app will pick a free one)")
+            port = None
 
     print("deploy %s -> %s" % (os.path.basename(fpk), args.host))
-    print("app    %s   port %d" % (app, port))
+    print("app    %s   port %s" % (app, port if port else "auto"))
     print("env    " + " ".join("%s=%s" % kv for kv in env_pairs))
     print("")
 
@@ -162,6 +216,18 @@ def main():
     timer.lap("install")
 
     # Poll the port ourselves: appcenter-cli's rc is not a health signal.
+    # When no port was pinned the app picks one itself, so read it back first.
+    if port is None:
+        print("")
+        print("waiting for the app to publish its port ...")
+        for _ in range(40):
+            port = probe_remembered_port(args.host, paths["var"])
+            if port:
+                break
+            time.sleep(0.5)
+        if not port:
+            C.fail("the app did not publish a port under %s/backend-port" % paths["var"])
+        print("       picked port %d" % port)
     print("")
     print("waiting for http://127.0.0.1:%d/api/health ..." % port)
     deadline = time.time() + args.timeout

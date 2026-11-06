@@ -190,13 +190,26 @@ def main():
     if not url:
         port = args.port
         if port is None:
-            fpk = C.newest_fpk()
-            port = 8899
-            if fpk:
-                try:
-                    port = int(C.fpk_manifest(fpk).get("service_port") or 8899)
-                except Exception:  # noqa: BLE001
-                    pass
+            # The panel picks a random free port at first start now, so ask the
+            # app what it chose instead of assuming a fixed number.
+            # @appdata is 0700 root:root -> read the port through sudo
+            res = C.ssh(args.host, 'set -u; f="$1/backend-port";'
+                                 ' if sudo test -r "$f"; then sudo cat "$f" | tr -dc 0-9; fi',
+                        args=(C.app_paths("fn-pvepanel")["var"],))
+            picked = ""
+            for line in (res.out or "").splitlines():
+                if line.strip().isdigit():
+                    picked = line.strip()
+            if picked:
+                port = int(picked)
+            else:
+                fpk = C.newest_fpk()
+                port = 8899
+                if fpk:
+                    try:
+                        port = int(C.fpk_manifest(fpk).get("service_port") or 8899)
+                    except Exception:  # noqa: BLE001
+                        pass
         url = "http://127.0.0.1:%d/" % port
 
     names = list(args.preset)

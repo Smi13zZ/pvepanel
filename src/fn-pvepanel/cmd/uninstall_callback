@@ -10,6 +10,10 @@ if [ -x "${MAIN_SCRIPT}" ]; then
 fi
 
 if [ -n "${TRIM_PKGVAR:-}" ]; then
+    # runtime-ports.env is rebuilt on every start, so it is safe to drop.
+    # backend-port is NOT removed: fnOS keeps @appdata across an uninstall, and
+    # a reinstall must come back on the same port or the desktop entry and any
+    # bookmark would point at a dead port.
     rm -f "${TRIM_PKGVAR}/pvepanel.pid" \
           "${TRIM_PKGVAR}/runtime-ports.env" 2>/dev/null || true
 fi
