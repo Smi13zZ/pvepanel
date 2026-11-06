@@ -1,302 +1,333 @@
-# PVEpanel（fn-pvepanel）
+<div align="center">
 
-飞牛 fnOS 上的 Proxmox VE 只读监控面板。用 fnOS 原生的 fpk 形态分发，后端是纯
-Python 3 标准库写的本机服务，前端是离线打包的 Vue 3。
+<img src="src/fn-pvepanel/app/web/images/icon.png" width="104" alt="PVEpanel">
 
-**浏览器永远不直连 PVE。** 集群地址和 API Token 只保存在设备本地，所有请求由本机
-服务转发——既避开了 CORS，也让 Token 不出设备。
+# PVEpanel
 
-- 当前版本：`26.11.7`
-- 安装形态：`fn-pvepanel-26.11.7-fnos-all.fpk`，在飞牛「应用中心 → 手动安装」导入
-- 运行位置：`/usr/local/apps/@appcenter/fn-pvepanel`，数据在 `@appdata/fn-pvepanel`
-- 监听：`127.0.0.1:8899`（只走桌面入口的 CGI，天然带 fnOS 登录校验）
+**飞牛 fnOS 原生 Proxmox VE 监控面板** · 概览 / 虚拟机 / 存储 / 磁盘 / 任务 / 通知
+
+纯 Python 3 标准库后端 · Vue 3 单页前端 · 零第三方依赖 · 桌面端与手机端自适应
+
+[功能](#功能一览) · [截图](#界面预览) · [安装](#安装) · [使用手册](#使用手册) · [常见问题](#常见问题) · [更新日志](CHANGELOG.md) · [English](README_EN.md)
+
+</div>
 
 ---
 
-## 它做什么
+## 这是什么
 
-七个页面：
+PVEpanel 把 Proxmox VE 的运行状态做成一个可以在飞牛 fnOS 桌面直接点开的原生应用（`.fpk`）。
+它不是一个「换个皮的网页壳」，而是一套完整的监控视图，并且**浏览器永远不直连 PVE**：
 
-| 页面 | 内容 |
+- **面板自带一个本地服务**，浏览器只跟它通信，所有请求由面板代为转发；
+- **集群地址和 API Token 只保存在设备本地**，不写进网页、不经过任何外部服务器；
+- **不用额外装 Python 包、Node、数据库**：后端只用 Python 3 标准库，前端 Vue 3 随包分发，离线可用；
+- **一个包通吃 x86 与 ARM** 飞牛设备（应用本身不含任何架构相关二进制）。
+
+它适合这样的场景：家里或机房里跑着 PVE，你想知道内存快到顶了、哪台虚拟机昨晚自己停了、哪块盘的
+温度在爬升、有没有虚拟机根本没有被备份任务覆盖——这些信息本该扫一眼就看到，而不是逐台点进
+PVE 的控制台。
+
+> PVEpanel 是**监控面板**，不是 PVE 的管理端。写操作只有虚拟机的开机 / 关机 / 强制停止 / 重启，
+> 其余全部只读。
+
+---
+
+## 功能一览
+
+| 模块 | 能力 |
 |---|---|
-| 总览 | 节点 CPU/内存/负载卡片、集群仲裁与 HA、告警汇总、资源曲线、存储水位 |
-| 虚拟机 | VM 与 CT 混排、状态筛选、搜索、CPU/内存占用、运行时长、模板标记 |
-| 存储 | 每个存储的用量环、可用容量、内容类型、共享标记 |
-| 磁盘 | 物理盘型号容量、健康、**温度**、SSD 寿命；以及「未被任何备份覆盖」的机器 |
-| 任务 | 备份/迁移/启停记录与成败；订阅状态；系统服务健康 |
-| 设置 | 服务器管理、通知推送、维护（备份/恢复）、更新（含一键升级）、外观与语言 |
+| **概览** | 节点 CPU / 内存 / 负载各占一张卡，数字不会互相掩盖；集群仲裁与 HA 状态、运行时长、内核与启动方式；**警告汇总**；资源曲线（时 / 日 / 周 / 月 / 年五档，横轴按真实时间刻度）；存储水位 |
+| **虚拟机** | VM 与容器混排；全部 / 运行 / 停止筛选，按名称或 VMID 搜索；CPU、内存占用、运行时长、模板标记；**开机 / 关机 / 强制停止 / 重启**（带二次确认，强制停止会额外提示可能丢数据） |
+| **存储** | 每个存储一行：用量圆环、已用 / 总量、可用、内容类型、节点、是否共享、在线状态 |
+| **磁盘** | 物理盘型号容量、健康状态、**温度**、SSD 寿命；以及「未被任何备份覆盖」的虚拟机清单 |
+| **任务** | 备份 / 迁移 / 启停记录与成败，每页 10 条可翻页；订阅状态；系统服务健康 |
+| **设置 · 服务器** | 多台 PVE 卡片式管理；添加 / 编辑 / 删除；**可以单独测试非当前服务器**；一键设为当前 |
+| **设置 · 通知** | 九种推送渠道；十二类事件逐条开关；按事件冷却去重，同一条告警不会反复刷屏 |
+| **设置 · 维护** | 配置导出 / 导入、导出到设备备份目录、自动备份（间隔 + 保留天数）、备份列表恢复与删除 |
+| **设置 · 更新** | 读取 GitHub 最新发布版本并与当前版本对比；**一键更新**（先校验安装包再卸载，装不上自动回滚） |
+| **设置 · 主题** | 夜间 / 日间 / 跟随系统三态；中英双语；刷新间隔 |
+| **移动端** | 抽屉式侧栏、卡片式布局、表格横向滑动、无横向溢出 —— 在飞牛手机 App 内嵌浏览器里同样顺手 |
+| **深链** | `?view=` `?tab=` `?tf=` `?lang=` `?theme=` `?server=` 参数，可直接打开某个页面、某个图表档位或强制某个主题 |
 
-**不只是只读**：虚拟机页可以直接开机 / 关机 / 强制停止 / 重启，带二次确认。
+### 警告覆盖哪些情况
 
-告警覆盖：节点离线、集群失去仲裁、存储水位、**虚拟机无备份**、备份任务失败、
-磁盘 SMART 异常、**磁盘温度超阈值**、负载偏高、内存紧张、订阅即将到期、权限不足、
-Token 失效。所有这些都能通过九种通道推送到手机。
+节点离线 · 集群失去仲裁 · 存储水位超阈值 · **虚拟机无备份** · 备份任务失败 ·
+磁盘 SMART 异常 · **磁盘温度超阈值** · 负载偏高 · 内存紧张 · 订阅即将到期 · 权限不足 · Token 失效。
 
-服务器可以加多个，顶栏切换，总览只显示当前那一台的节点。
+所有警告都可以通过九种通道推送到手机。
 
-中英文切换、明暗主题跟随系统；手机端侧栏变成抽屉，表格自动收列。
+### 支持的通知渠道
 
----
-
-## 多服务器
-
-面板可以同时保存多台 PVE，顶栏切换当前查看的那一台。总览、虚拟机、存储、磁盘、
-任务全部只针对当前服务器——不会把两台机器的数字混成一张图。
-
-服务端把每台服务器的缓存、连接池、认证状态分开保存（`collector.ServerState`），
-所以一台 Token 失效不会拖累另一台。
-
-从 26.11.0 升上来的老配置会自动迁移：原来 `config.json` 里的地址与
-`token.json` 里的 Token 会迁成第一条服务器记录，不用重填。
+Bark / Server 酱 / PushPlus / WxPusher / Telegram / 企业微信机器人 / 钉钉机器人 / Slack / 自定义 Webhook。
 
 ---
 
-## 虚拟机启停
+## 界面预览
 
-虚拟机页每行右侧有操作按钮：开机（停止状态时）、重启 / 关机 / 强制停止（运行状态时）。
-强制停止是红色，并且会额外弹一句「相当于拔电源，可能丢失数据」。
+桌面端（1440px）：
 
-这是面板**唯一会写 PVE 的地方**，走 `POST /nodes/{node}/{qemu|lce}/{vmid}/status/{action}`，
-返回任务的 UPID。需要 Token 上有 `VM.PowerMgmt`——`PVEAuditor` 是纯只读，**不含这个权限**，
-所以要么换成 `PVEVMAdmin` 之类的角色，要么额外授一条：
+| 概览 · 浅色 | 概览 · 深色 |
+|---|---|
+| ![概览浅色](docs/images/dash-light.png) | ![概览深色](docs/images/dash-dark.png) |
+
+| 虚拟机 | 存储 |
+|---|---|
+| ![虚拟机](docs/images/guests.png) | ![存储](docs/images/storage.png) |
+
+| 磁盘 | 任务 |
+|---|---|
+| ![磁盘](docs/images/disks.png) | ![任务](docs/images/tasks.png) |
+
+| 服务器 | 更新 |
+|---|---|
+| ![服务器](docs/images/servers.png) | ![更新](docs/images/update.png) |
+
+手机端（390px）：
+
+| 概览 | 虚拟机 | 设置 |
+|---|---|---|
+| ![手机概览](docs/images/mobile-dash.png) | ![手机虚拟机](docs/images/mobile-guests.png) | ![手机设置](docs/images/mobile-settings.png) |
+
+---
+
+## 安装
+
+### 前置条件
+
+- 一台飞牛 fnOS 设备（x86 或 ARM 均可），系统已内置 Python 3；
+- 一台可访问的 Proxmox VE（7 / 8 / 9 均可），以及一个只读 API Token（见下）。
+
+### 方式一：应用中心手动安装（推荐）
+
+1. 到本仓库的 [Releases](../../releases) 页面下载最新的 `fn-pvepanel-<版本>-fnos-all.fpk`；
+2. 打开飞牛 fnOS → **应用中心** → **手动安装**，选择刚下载的 fpk；
+3. 安装向导会让你填面板端口（默认 **8899**，被占用时换一个即可）；
+4. 装好后飞牛桌面会出现 **PVEpanel** 图标，点开即用。
+
+### 方式二：命令行安装
 
 ```bash
-pveum acl modify /vms --tokens 'monitor@pve!dash' --roles PVEVMAdmin --propagate 1
+printf 'wizard_backend_port=8899\n' > /tmp/pvepanel.env
+appcenter-cli install-fpk -e /tmp/pvepanel.env /path/to/fn-pvepanel-26.11.7-fnos-all.fpk
 ```
 
-没有这个权限时按钮不会消失，点了会明确提示「权限不足」，比隐藏按钮更好排查。
+> `appcenter-cli` 安装时必须提供环境变量文件（`-e`）；它**不会覆盖已安装的同名应用**，
+> 升级前需要先 `appcenter-cli uninstall fn-pvepanel`。已经在旧版本的，直接在面板里点一键更新即可。
+
+### 安装位置
+
+| 内容 | 路径 |
+|---|---|
+| 程序 | `/usr/local/apps/@appcenter/fn-pvepanel` |
+| 配置、Token、日志与备份 | `/usr/local/apps/@appdata/fn-pvepanel` |
 
 ---
 
-## 通知推送
+## 准备 PVE 的只读 Token
 
-九种通道：Bark / Server 酱 / PushPlus / WxPusher / Telegram / 企业微信机器人 /
-钉钉机器人 / Slack / 自定义 Webhook。
-
-十二类事件可以逐条开关。推送的判据就是面板上显示的告警——**同一条规则不会出现
-「页面红了但没推送」或反过来**。每个事件带冷却时间（存储 6 小时、负载 30 分钟、
-订阅 24 小时……），并且同一条告警重复出现时不会反复推送。
-
-推送在独立线程里发送，webhook 慢或挂掉都不会拖住页面。
-
----
-
-## 更新与维护
-
-**一键更新**在「设置 → 更新」里：读取 GitHub 上的最新发布版本，与当前安装的版本比较，
-发现新版本可直接下载安装。流程是先校验安装包（应用名、版本号、可执行位）再卸载旧版，
-装不上会自动回滚到旧包；下载期间显示真实百分比，安装期间弹窗不关闭，服务重启后自动恢复。
-
-后台线程每小时自查一次，与浏览器是否打开无关——没人开面板也会知道有新版本。
-
-**维护**在「设置 → 维护」里：导出 / 导入配置、导出到设备备份目录、自动备份
-（间隔 + 保留天数 + 上次成功 / 下次运行 / 上次错误）、按单个文件恢复或删除。
-
-两种备份的取舍是有意为之：
-
-- **下载到本地的**不含 API Token。这个文件会离开设备，不能带集群凭据。
-- **设备上的自动备份和「导出到备份目录」**保留 Token。否则恢复出来是个不能用的面板，
-  还得把每台机器的 Token 重填一遍。文件权限 0600，目录 0700。
-- **保留期只清理自动备份**，不动手动导出的；读不出类型的文件也保留——更可能是损坏而不是可弃。
-
-## 四条不显眼但必须有行为
-
-这四条都是踩过才写出来的，改动时别顺手删掉。
-
-### 1. 401 立刻熔断
-
-PVE 对**每一次**认证失败都会压 3 秒才回（`pve-http-server` 里写死的
-`$delay = 3 - elapsed`），并且 4xx 强制 `Connection: close`。一个失效的 Token
-如果放任轮询，8 个端点串行就是 24 秒，三节点集群 60 秒——面板看起来就是死了。
-
-所以：**首个 401 立刻中止整轮采集**，不重试、不继续拉剩下的端点，把面板切到
-「Token 已失效」状态并停止轮询。实测一次强制刷新正好 3.0 秒收尾，不会随时间累积。
-
-同时保留**最后一次成功的数据**继续显示（标记为「已冻结」），而不是清空成 0 ——
-巡检的人需要看到出事前的样子。
-
-### 2. 探活绝不打需要认证的端点
-
-`/api2/json/version` 需要一个有效 Token，没配 Token 时每次探活白烧 3 秒。
-面板改用 `GET /`（免认证、约 5 ms）做连通性探测，顺带从页面里读出 PVE 版本和
-节点名——所以** Token 还没填的时候，首屏也能显示「PVE 在线 / 版本 / 节点名」**。
-
-### 3. Token 掩码不会被当成新值写回
-
-`GET /api/settings` 把已保存的 Token 换成字面量 `__SET__` 返回，前端输入框留空并
-提示「已保存，留空保留原值」。写入路径**两道防线**：
-
-- 服务端收到 `__SET__` 或空串时沿用旧值，只有真填了新值才替换；
-- 前端只提交真正改动的字段，不回传整份带掩码的 draft。
-
-少任何一道，用户改个阈值就会把 Token 写成 `__SET__`，而且**无法自动恢复**。
-
----
-
-## 权限：一条命令的差别
-
-单个 `PVEAuditor` 角色就够（它已含 `Sys.Audit` + `Datastore.Audit` + `VM.Audit` +
-`Pool.Audit` + `SDN.Audit`），**但必须授在 `/` 且开启 propagate**：
+PVE 用 API Token 授权。**一个 `PVEAuditor` 角色就够**，但它必须授在 `/` 并开启 propagate：
 
 ```bash
-pveum user add monitor@pve --comment "fnOS PVE panel (read-only)"
+# 1) 建一个专用用户
+pveum user add monitor@pve --comment "PVEpanel read-only"
+
+# 2) 授只读角色到根路径（propagate 不能省）
 pveum acl modify / --users monitor@pve --roles PVEAuditor --propagate 1
 
-# Token 默认 privsep=1（权限取交集），ACL 必须额外授给 token 本身
-pveum user token add monitor@pve dash --privsep 1 --expire <unix 秒> --comment "fnOS panel token"
-pveum acl modify / --tokens 'monitor@pve!dash' --roles PVEAuditor --propagate 1
+# 3) 建 Token（privsep 保持默认 1）
+pveum user token add monitor@pve panel --comment "PVEpanel"
+
+# 4) Token 默认 privsep=1，权限取「用户 ∩ Token」，所以 Token 自己也要授一遍
+pveum acl modify / --tokens 'monitor@pve!panel' --roles PVEAuditor --propagate 1
 ```
+
+第 3 步会输出一次性的 uuid，拼成 `monitor@pve!panel=xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx`
+填进面板即可。**它只显示一次，务必当场保存。**
+
+> `pveum` 在 `/usr/sbin`，如果 `ssh root@pve "pveum ..."` 报 command not found，
+> 用 `/usr/sbin/pveum` 全路径或 `bash -lc 'pveum ...'`。
+
+### 为什么必须授在根路径
 
 只授在 `/nodes/<node>` 子树的话，`/cluster/status` 与 `/nodes/<node>/disks/smart`
-会直接 403——因为这两个端点查的是**根路径**权限。面板会把 403 显示成「权限不足，
-请确认 PVEAuditor 授在 / 并开启 propagate」，而不是笼统的「连接失败」。
+会直接 403 —— 这两个端点查的是**根路径**权限。面板会把这种情况显示成
+「权限不足，请确认 PVEAuditor 授在 / 并开启 propagate」，而不是笼统的「连接失败」。
 
-> Token 不设 `expire` 就是**永不过期**。建议显式设一个，并在到期前换掉。
+### 想让面板启停虚拟机
+
+`PVEAuditor` 是纯只读，**不含 `VM.PowerMgmt`**。要启停就再给一条：
+
+```bash
+pveum acl modify /vms --users monitor@pve --roles PVEVMAdmin --propagate 1
+pveum acl modify /vms --tokens 'monitor@pve!panel' --roles PVEVMAdmin --propagate 1
+```
+
+没有这条权限时按钮不会消失，点了会明确提示「权限不足」，比藏起来更好排查。
 
 ---
 
-## 拿不到的数据
+## 使用手册
 
-这三项在 PVE 的 API 层根本不存在，不是没做：
+### 1. 添加你的 PVE
 
-| 拿不到 | 原因 |
+首次打开面板会看到「还没有服务器」。点 **添加服务器**：
+
+| 字段 | 说明 |
 |---|---|
-| CPU 温度 / 主板温度 | 全部 437 个叶子端点里 `temperature` / `sensor` / `thermal` 命中 0 |
-| 风扇转速 | `fan` / `rpm` 命中 0 |
-| 单物理网卡吞吐 | `/network` 只有配置；`netstat` 只覆盖 tap/veth。只能看节点合计的 `netin/netout` |
+| 名称 | 随便起，会显示在顶栏 |
+| 地址 | **写在设备上能访问到的地址**，只填 IP 或主机名，不用写 `https://` 和端口 |
+| 端口 | 默认 `8006` |
+| API Token | 上面生成的 `user@realm!tokenid=uuid` 整串 |
+| 校验 TLS 证书 | PVE 默认自签证书，通常保持关闭 |
 
-**磁盘温度是可以拿的**，但按盘型走不同分支：ATA 盘取
-`attributes[id=="194"].raw` 的首个 token，NVMe/SAS 只能从 `text` 自由文本里正则抠。
-注意 `disks/list` 的 `type` 是 `ssd/hdd/nvme`，而 `disks/smart` 的 `type` 是
-`ata/text` —— **两套枚举，混用会让温度全部解析失败**。
+保存后顶栏会显示连接状态与当前地址。多台 PVE 可以一起管，**概览只显示当前那一台**——
+不会把两台机器的数字混成一张图。
 
----
+Token 存进面板后，浏览器只能拿到 `__SET__` 掩码；编辑时 Token 框留空表示保留原值。
 
-## 刷新节奏
+### 2. 概览页
 
-每类数据有自己的 TTL，不做「一键全刷」：
+三张数字卡分别显示 CPU、内存、负载 —— **它们是分开的**，一个数字异常不会被另一个掩盖。
+下面是集群概况（仲裁、HA、内核、启动方式、运行时长）、警告汇总、资源曲线与存储水位。
 
-| 数据 | TTL | 为什么 |
+资源曲线有五个档位，横轴按真实时间刻度：
+
+| 档位 | 跨度 | 每格 |
 |---|---|---|
-| 免认证指纹 | 5 s | 4~6 ms，白送 |
-| 集群 / 节点 / 虚拟机 | 8 s | pvestatd 本身就是 10 s 周期，更快没意义 |
-| 存储 | 30 s | 变化慢 |
-| 任务 / 服务 | 30~60 s | 变化慢 |
-| 曲线 RRD | 60 s | 分钟粒度 |
-| 磁盘 / SMART | 300 s | smartctl 是全场最慢的一类，每块盘一次请求 |
+| 时 | 最近 1 小时 | 10 分钟 |
+| 日 | 最近 1 天 | 2 小时 |
+| 周 | 最近 1 周 | 1 天 |
+| 月 | 最近 1 月 | 5 天 |
+| 年 | 最近 1 年 | 2 个月 |
 
-连接复用是必须的：实测 keep-alive 后单请求 0.45 ms，每次新建 TLS 是 2.7 ms。
+### 3. 虚拟机页
+
+VM 与容器混排在同一张表。可以按「全部 / 运行 / 停止」筛选，按名称或 VMID 搜索。
+
+每行右侧的操作按钮：运行中的是**重启 / 关机 / 强制停止**，停止状态时是**开机**。
+强制停止是红色，并会额外弹一句「相当于拔电源，可能丢失数据」。
+表格较宽时可以横向滑动查看全部列（CPU、内存、运行时长、类型……都在）。
+
+### 4. 存储 / 磁盘 / 任务页
+
+- **存储**：一个存储一行，圆环显示水位，右侧是可用、内容类型、节点、是否共享；
+- **磁盘**：设备、型号、容量、类型、健康、**温度**、SSD 寿命；下方单独列出「未被备份覆盖」的虚拟机；
+- **任务**：顶部三个页签「任务 / 订阅 / 系统服务」。任务列表每页 10 条可翻页。
+
+### 5. 通知
+
+「设置 → 通知」里添加渠道，十二类事件可以逐条开关。推送的判据就是面板上显示的警告——
+**同一条规则不会出现「页面红了但没推送」或反过来**。
+
+每个事件带冷却时间（存储 6 小时、负载 30 分钟、订阅 24 小时……），同一条告警重复出现时不会反复推送。
+每个渠道都能单独「测试」，密钥只存本机且不回显。
+
+### 6. 维护与更新
+
+**维护**：配置可以整体导出 / 导入。两种备份的取舍是有意为之——
+
+- **下载到本地的**不含 API Token（文件会离开设备）；
+- **设备上的自动备份**保留 Token，否则恢复出来是个不能用的面板，还得把每台机器的 Token 重填一遍。
+
+自动备份可设间隔与保留天数；保留期只清理自动备份，不动手动导出的。
+
+**更新**：后台每小时自查一次（与浏览器开没开无关）。发现新版本可以一键更新——
+面板下载安装包、校验通过后才卸载旧版，装不上会自动回滚。升级过程中页面会自动等待新版本上线。
+
+### 7. 手机端与深链
+
+在飞牛 App 里打开会自动切换移动布局；浏览器直接访问时宽度小于 640px 也进入同一套布局。
+
+| 参数 | 取值 | 作用 |
+|---|---|---|
+| `view` | `dash` / `guests` / `storage` / `disks` / `tasks` / `settings` | 直接打开指定页面 |
+| `tab` | `servers` / `notify` / `maint` / `update` / `ui` | 打开设置里的指定分区 |
+| `tf` | `hour` / `day` / `week` / `month` / `year` | 资源曲线的档位 |
+| `lang` | `zh` / `en` | 强制界面语言 |
+| `theme` | `dark` / `light` / `auto` | 强制主题 |
+| `server` | 服务器 id | 直接切到某台 PVE |
 
 ---
 
-## 目录
+## 常见问题
 
-```
-src/fn-pvepanel/            fpk 源码树
-  manifest                  版本、端口、安装类型
-  cmd/                      9 个生命周期脚本（8 个原样，main 改过）
-  config/                   privilege（run-as root）、resource
-  wizard/                   安装时问端口
-  app/ui/                   桌面入口配置、index.cgi、九档图标
-  app/server/               pveclient（连接池+错误分流）/ collector（采集+缓存+告警）/ store（配置与 Token）/ pvepanel（HTTP 服务）
-  app/web/                  index.html / style.css / js/
-tools/                      build_fpk.py / deploy.py / shot.py / inspect_fpk.py
-output/                     打好的 fpk
-image/                      截图
-report/ research/           设计与实测记录
-```
+**连不上 / 提示 Token 失效**
+先用「设置 → 服务器 → 测试连接」看是哪一步失败，它会分成「连通性 / 认证域 / Token / 权限」四步回答，
+比一句笼统的「连接失败」好定位。
+
+**提示权限不足，但 Token 看起来是对的**
+`PVEAuditor` 必须授在 `/` 并 `--propagate 1`。只授在节点子树会让 `/cluster/status` 403。
+
+**为什么虚拟机启停按钮点了提示权限不足**
+`PVEAuditor` 不含 `VM.PowerMgmt`，需要额外给 `/vms` 的 `PVEVMAdmin`。
+
+**看不到 CPU / 主板温度、风扇转速**
+PVE 的 API 层没有这些端点（437 个叶子端点里相关关键字命中 0），不是面板没做。
+**磁盘温度是可以拿的**，ATA / NVMe / SAS 分别走不同分支解析。
+
+**面板能访问，但数据一直是空的**
+检查 PVE 是否可达、Token 是否过期。面板在取不到数据时会保留最后一次成功的结果并标记为「已冻结」，
+而不是清空成 0 —— 巡检时你需要看到出事前的样子。
+
+**数据存在哪？**
+配置、Token、日志与备份都在 `/usr/local/apps/@appdata/fn-pvepanel`。
 
 ---
 
-## 开发
+## 安全说明
 
-打包只能在 Linux 上做（Windows 会丢可执行位，安装报 10111）。构建脚本通过 SSH 在
-测试机上完成：
-
-```bash
-python tools/build_fpk.py          # 结构检查 → 打包到 output/
-python tools/deploy.py             # 卸载旧版 → 装新版 → 起服务 → 探活
-python tools/shot.py --preset desktop --url "http://127.0.0.1:8899/?view=dash"
-python tools/pve-test.py "qm list" # 在测试 PVE 上跑命令
-```
-
-### 发布
-
-推送 `v*` 标签即触发 GitHub Actions：构建 → 校验 → 传 artifact → 发布 Release。
-只有「标签名 == `v` + manifest 版本」才会发 Release，临时标签只出 artifact。
-
-```bash
-# 改 manifest 版本、CHANGELOG、index.html 的 ?v=
-git commit -am "..." && git push
-git tag -a v26.11.8 -m "PVEpanel 26.11.8" && git push origin refs/tags/v26.11.8
-
-# CI 绿了之后，验证发布出来的东西真的能用
-python tools/release.py v26.11.8
-```
-
-`release.py` 查三件事，每一件都曾经被「CI 绿了」漏掉过：
-
-1. 这次标签的 Actions 跑成功了，并列出每个步骤的结果；
-2. 发布出来的 .fpk 能下载、大小对得上、`inspect_fpk --strict` 通过（可执行位、
-   九档图标、包内版本号）；
-3. 测试机上的面板能通过它自己的更新检查读到这个版本——**能读到才叫发布成功**，
-   传上去了但读不到等于没发。
-
-第 3 步对着的是运行在 fnOS 上的面板，不在这台开发机上，所以默认地址是
-`$PVEPANEL_URL`（或先 `ssh -N -L 18899:127.0.0.1:8899 fnos-test`）。
-
-### 发布前的闸门
-
-`py_compile` 只证明文件能解析。这个项目实际踩到的 bug 全都是语法完全合法的：
-方法体缩进跑偏导致类里没有这个方法、`self.foo` 读了但任何地方都没赋值、
-用了但没定义的名字。所以有三道更硬的闸门：
-
-```bash
-python tools/check_structure.py    # 缩进跑偏 / 未定义名字 / self 属性缺失
-python tools/test_bootstrap.py     # 首屏不许被网络阻塞
-python tools/test_maint.py         # 配置备份往返
-python tools/test_upgrade_installer.py
-python tools/test_notify.py
-python tools/test_update.py
-```
-
-`build_fpk.py` 会把 `check_structure.py` 作为打包前的一道闸门跑一遍，失败就**不打包**。
-
-浏览器侧有两个只能真跑才知道的检查（它们抓的是静态分析看不见的运行时错误）：
-
-```bash
-# 在每个视图下渲染页面并收集 console.error / 未捕获异常
-python tools/console_check.py
-# 测量列表表的真实渲染结果：有没有列被隐藏、内容比容器宽时能不能滚
-python tools/probe_cols.py
-```
-
-两者都**必须在设备上跑**（要 chromium 和已安装的 web 目录写权限）。
-
-一个测量上的坑值得记下来：这台 chromium 的 `--dump-dom` **忽略 `--window-size`**，
-三个不同尺寸全报 `innerWidth = 780`。用 `--dump-dom` 量"手机布局"得到的其实是桌面布局。
-`--screenshot` 是正常的。要断言手机下的表现，就看截图，或者把结论写进页面再截图。
-
-详见 [tools/README.md](tools/README.md)。
-
-**本机没有 python/node**，用 DSH 自带运行时：
-`C:\Users\PVE\.dsh\dsh-runtimes\dsh-next-primary-runtime\dependencies\python\python.exe`。
-
-本地开发**已经有一台真的 PVE 可用**：`fnos-test` 上跑着一台完整的 Proxmox VE 8.4.21
-（libvirt 虚拟机，面板已连上它）。连法、凭据、重建步骤见 [docs/TEST-ENV.md](docs/TEST-ENV.md)，
-跑命令用 `tools/pve-test.py`。
-
-另有一个行为仿真的 Mock（真实的 3 秒 401 惩罚、两种形态磁盘温度、可切 401/403/offline），
-只在需要复现故障态时切过去，用法见 `tmp/mock/README.md`。
+- PVE 的地址与 Token 只保存在设备本地，不写入网页、不上传任何外部服务；
+- **面板监听 `127.0.0.1`**，只通过飞牛桌面入口的 CGI 访问，那条路有 fnOS 登录校验。
+  如果改成对外监听，任何能访问该端口的人都能看到整个集群的状态，需要自行加认证；
+- 导出的备份（未含 Token）与设备上的自动备份（含 Token）请妥善保管。
 
 ---
 
 ## 已知限制
 
-- **崩溃不自愈。** 开机自启是有的（appcenter 启动时批量拉起），但进程被 `kill -9`
-  后没有任何东西会把它拉回来，状态会停在 `start`。异常退出后到应用中心点一下启动。
-- **直连端口没有鉴权。** 面板监听 `127.0.0.1`，只通过桌面入口的 CGI 访问，
-  那条路有 fnOS 登录校验。如果改成 `0.0.0.0`，任何能访问该端口的人都能看到整个集群
-  的只读数据——要做的话得另外加一层面板密码。
-- **写操作只有虚拟机启停。** 快照、备份触发、创建/删除虚拟机都未实现，且都需要
-  更高的权限集。
+- **崩溃不自愈**：开机自启是有的，但进程被 `kill -9` 后没有东西会把它拉回来，
+  到应用中心点一下启动即可；
+- **写操作只有虚拟机启停**：快照、备份触发、创建 / 删除虚拟机都未实现；
+- **没有告警历史**：面板显示当前状态，历史趋势看资源曲线，但没有独立的告警时间线；
+- 集群（多节点）场景下，曲线只取第一个节点的 RRD。
+
+---
+
+## 从源码构建
+
+源码结构：
+
+```
+src/fn-pvepanel/
+├── manifest                 # 应用元信息：包名、版本、端口、平台
+├── ICON.PNG / ICON_256.PNG  # 应用图标（64 / 256）
+├── config/                  # 运行身份（root）与应用文件夹声明
+├── wizard/                  # 安装向导（面板端口）
+├── cmd/main                 # 生命周期脚本：start / stop / status
+└── app/
+    ├── server/              # pvepanel.py（HTTP 服务与路由）、collector.py（采集与缓存）、
+    │                        # pveclient.py（连接池）、store.py（配置与 Token）、
+    │                        # notify.py（九种通道）、update.py、installer.py、maint.py
+    ├── web/                 # index.html + style.css + js/ + lib/vue.global.prod.js
+    └── ui/                  # 桌面入口（index.cgi 反代到本地端口）与九档图标
+```
+
+仓库自带 `.github/workflows/build-fpk.yml`：推 `v*` 标签会自动构建、校验并发布 Release。
+本地打包**只能在 Linux 上做**（Windows 会丢可执行位，安装报 10111），
+`tools/build_fpk.py` 通过 SSH 在飞牛设备上用官方 `fnpack` 完成。
+
+```bash
+python tools/build_fpk.py     # 结构检查 → 打包
+python tools/deploy.py        # 卸载旧版 → 装新版 → 起服务 → 探活
+python tools/preflight.py     # 跑齐 CI 的全部闸门
+```
+
+---
+
+## 许可
+
+[MIT](LICENSE) © 2026 Smi13zZ
+
+本项目与 Proxmox Server Solutions GmbH、飞牛 fnOS 官方均无隶属关系。
+Proxmox VE 是 Proxmox Server Solutions GmbH 的商标。
