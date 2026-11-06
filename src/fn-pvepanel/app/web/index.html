@@ -697,7 +697,7 @@
               </div>
             </div>
 
-            <div class="vstatus" :class="updateNew ? 'has' : 'idle'">
+            <div class="vstatus" :class="{ has: updateNew }">
               <span class="vsic" v-html="ic('spark')"></span>
               <div class="vstext">
                 <b>{{ updateHeadline }}</b>

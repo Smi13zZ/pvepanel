@@ -715,39 +715,31 @@ canvas { display: block; width: 100%; height: 100%; }
   font-variant-numeric: tabular-nums; white-space: nowrap;
 }
 .vv.fresh { color: var(--accent-bar); }
-.varrow { color: var(--faint); display: flex; align-items: center; }
-.varrow svg { width: 20px; height: 20px; }
+.varrow { flex: 0 0 auto; display: flex; color: var(--faint); }
 
 .vstatus {
-  display: flex; align-items: center; gap: 12px;
-  padding: 12px 14px; border-radius: var(--radius);
-  border: 1px solid var(--border); flex-wrap: wrap;
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  padding: 12px 14px; border: 1px solid var(--border);
+  border-radius: var(--radius-lg); background: var(--card);
 }
+/* Only the "update available" state is tinted. Being up to date is the normal
+   case, so it keeps the plain card surface and a neutral grey disc - colouring
+   it green made an ordinary state look like an achievement worth noticing. */
 .vstatus.has {
   border-color: color-mix(in srgb, var(--warn) 40%, var(--border));
-  background: color-mix(in srgb, var(--warn) 8%, transparent);
+  background: color-mix(in srgb, var(--warn) 8%, var(--card));
 }
-.vstatus.has .vsic {
-  background: color-mix(in srgb, var(--warn) 20%, transparent);
-  color: color-mix(in srgb, var(--warn) 75%, var(--text));
-}
-.vstatus.idle {
-  border-color: color-mix(in srgb, var(--ok) 34%, var(--border));
-  background: color-mix(in srgb, var(--ok) 8%, transparent);
-}
-.vstatus.idle .vsic {
-  background: color-mix(in srgb, var(--ok) 20%, transparent);
-  color: color-mix(in srgb, var(--ok) 75%, var(--text));
-}
-/* The status icon carries as much weight as the text beside it: a 34px disc
-   with a tinted background, not an 18px glyph that the headline dwarfs. */
 .vsic {
   flex: 0 0 34px; width: 34px; height: 34px; border-radius: 50%;
   display: flex; align-items: center; justify-content: center;
   background: var(--muted); color: var(--dim);
 }
+.vstatus.has .vsic {
+  background: color-mix(in srgb, var(--warn) 20%, transparent);
+  color: color-mix(in srgb, var(--warn) 75%, var(--text));
+}
 .vstext { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1 1 180px; }
-.vstext b { font-weight: 600; font-size: 13.5px; }
+.vstext b { font-size: 13.5px; font-weight: 600; }
 .vstext span { font-size: 12px; color: var(--dim); }
 
 /* One-click update overlay. The install stops the service, so the page WILL
@@ -867,6 +859,11 @@ canvas { display: block; width: 100%; height: 100%; }
   .toolbar .seg { flex: 0 0 auto; }
   .chart-wrap { height: 170px; }
   .kv { grid-template-columns: 92px minmax(0, 1fr); gap: 6px 10px; }
+
+  /* Touch targets get taller than the desktop 30px: a 30px button is fine
+     under a mouse and marginal under a thumb. */
+  .btn { height: 38px; }
+  .btn.sm { height: 32px; }
 
   /* phone topbar: title keeps a floor, the endpoint chip yields */
   .topbar .page-title { flex: 0 1 auto; min-width: 4.2em; }
