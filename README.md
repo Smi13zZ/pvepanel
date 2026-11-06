@@ -220,6 +220,31 @@ python tools/shot.py --preset desktop --url "http://127.0.0.1:8899/?view=dash"
 python tools/pve-test.py "qm list" # 在测试 PVE 上跑命令
 ```
 
+### 发布
+
+推送 `v*` 标签即触发 GitHub Actions：构建 → 校验 → 传 artifact → 发布 Release。
+只有「标签名 == `v` + manifest 版本」才会发 Release，临时标签只出 artifact。
+
+```bash
+# 改 manifest 版本、CHANGELOG、index.html 的 ?v=
+git commit -am "..." && git push
+git tag -a v26.11.8 -m "PVEpanel 26.11.8" && git push origin refs/tags/v26.11.8
+
+# CI 绿了之后，验证发布出来的东西真的能用
+python tools/release.py v26.11.8
+```
+
+`release.py` 查三件事，每一件都曾经被「CI 绿了」漏掉过：
+
+1. 这次标签的 Actions 跑成功了，并列出每个步骤的结果；
+2. 发布出来的 .fpk 能下载、大小对得上、`inspect_fpk --strict` 通过（可执行位、
+   九档图标、包内版本号）；
+3. 测试机上的面板能通过它自己的更新检查读到这个版本——**能读到才叫发布成功**，
+   传上去了但读不到等于没发。
+
+第 3 步对着的是运行在 fnOS 上的面板，不在这台开发机上，所以默认地址是
+`$PVEPANEL_URL`（或先 `ssh -N -L 18899:127.0.0.1:8899 fnos-test`）。
+
 ### 发布前的闸门
 
 `py_compile` 只证明文件能解析。这个项目实际踩到的 bug 全都是语法完全合法的：
