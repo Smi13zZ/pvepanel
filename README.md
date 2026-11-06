@@ -128,6 +128,7 @@ appcenter-cli install-fpk /path/to/fn-pvepanel-26.11.14-fnos-all.fpk
 PVE 用 API Token 授权。只读用途一个 `PVEAuditor` 角色就够，但它必须授在 `/` 并开启「继承」。
 
 建 Token 有两条路，**网页界面更省事**，先讲这个。
+带界面截图的完整版单独放在 [docs/PVE-TOKEN-WEB-UI.md](docs/PVE-TOKEN-WEB-UI.md)。
 
 ### 方式一：网页界面（推荐）
 
@@ -232,6 +233,8 @@ POST /nodes/pve9/qemu/300/status/shutdown
 
 要启停，就在 `/vms` 上再追加 `PVEVMAdmin`（它含 `VM.PowerMgmt`）。
 **用户和 Token 各授一遍**（特权分离下权限取交集）。
+
+> 带截图的完整操作见 [docs/PVE-TOKEN-WEB-UI.md](docs/PVE-TOKEN-WEB-UI.md)。
 
 网页界面里就是回到 **数据中心 → 权限** 点两次 **添加**：
 

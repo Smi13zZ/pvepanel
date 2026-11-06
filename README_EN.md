@@ -130,6 +130,8 @@ PVE authenticates over the API with a token. For read-only use a single `PVEAudi
 enough, but it has to be granted on `/` with **Propagate** enabled.
 
 There are two ways to create it. **The web UI is quicker**, so start there.
+A screenshot-by-screenshot version lives in [docs/PVE-TOKEN-WEB-UI.md](docs/PVE-TOKEN-WEB-UI.md)
+(Chinese; the field names are the same in an English UI).
 
 ### Option 1: the web UI (recommended)
 
@@ -239,7 +241,8 @@ POST /nodes/pve9/qemu/300/status/shutdown
 Grant `PVEVMAdmin` (which contains `VM.PowerMgmt`) on `/vms`, **to both the user and the token**
 — with Privilege Separation on, the effective permissions are the intersection.
 
-In the web UI that is **Datacenter → Permissions → Add**, twice:
+In the web UI that is **Datacenter → Permissions → Add**, twice (illustrated in
+[docs/PVE-TOKEN-WEB-UI.md](docs/PVE-TOKEN-WEB-UI.md)):
 
 | # | Add type | Path | Subject | Role | Propagate |
 |---|---|---|---|---|---|
