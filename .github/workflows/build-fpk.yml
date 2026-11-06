@@ -135,16 +135,42 @@ jobs:
       - name: Verify the package
         run: |
           set -uo pipefail
+          mkdir -p /tmp/verify
+          {
+            echo "pwd=$(pwd)"
+            echo "workspace=$GITHUB_WORKSPACE"
+            ls -l "$GITHUB_WORKSPACE"/*.fpk
+            echo "--- manifest on disk ---"
+            sed -n '1,20p' src/fn-pvepanel/manifest
+          } > /tmp/verify/context.txt 2>&1
+          rc_all=0
           for f in "$GITHUB_WORKSPACE"/*.fpk; do
             echo "--- inspecting $(basename "$f") ---"
-            python3 tools/inspect_fpk.py "$f" --strict
+            python3 tools/inspect_fpk.py "$f" --strict > /tmp/verify/inspect.txt 2>&1
             rc=$?
+            cat /tmp/verify/inspect.txt
             echo "inspect exit=$rc"
-            if [ "$rc" -ne 0 ]; then
-              echo "=== package verification failed ==="
-              exit "$rc"
-            fi
+            [ "$rc" -ne 0 ] && rc_all=$rc
           done
+          if [ "$rc_all" -ne 0 ]; then
+            echo "=== package verification failed ==="
+            # Surface the reason as an annotation: the annotations API is
+            # readable with a plain token, the job log endpoint is not.
+            while IFS= read -r line; do
+              case "$line" in
+                FAIL*|WARN*|RESULT*) echo "::error::$line" ;;
+              esac
+            done < /tmp/verify/inspect.txt
+            exit "$rc_all"
+          fi
+
+      - name: Upload verify diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v5
+        with:
+          name: verify-diagnostics
+          path: /tmp/verify/
+          if-no-files-found: warn
 
       - name: Compose release notes
         if: steps.meta.outputs.publish == 'true'

@@ -31,6 +31,16 @@ REQUIRED_OUTER = ["manifest", "app.tgz", "config/resource", "config/privilege", 
 REQUIRED_INNER = ["ui/config", "ui/index.cgi", "web/index.html"]
 
 
+def _fail(failures, message):
+    """Record and echo a failure immediately.
+
+    The summary at the end is the nice-to-have; this is the safety net for the
+    case where a CI log gets truncated before the summary is printed.
+    """
+    failures.append(message)
+    print("FAIL  " + message)
+
+
 def main():
     C.setup_stdio()
     ap = argparse.ArgumentParser(description="Inspect an fpk")
@@ -78,7 +88,7 @@ def main():
                                         % len([m for m in members.values() if m.name.startswith("cmd/")])
                                         if not noexec else "FAIL " + ", ".join(noexec)))
         if noexec:
-            failures.append("cmd/* without exec bit -> install error 10111")
+            _fail(failures, "cmd/* without exec bit -> install error 10111")
 
         if "app.tgz" in members:
             inner = tarfile.open(fileobj=io.BytesIO(outer.extractfile("app.tgz").read()))
@@ -95,18 +105,18 @@ def main():
 
             cgi = imembers.get("ui/index.cgi")
             if cgi is None:
-                failures.append("ui/index.cgi missing")
+                _fail(failures, "ui/index.cgi missing")
             else:
                 if not (cgi.mode & 0o111):
-                    failures.append("ui/index.cgi not executable -> install error 10111")
+                    _fail(failures, "ui/index.cgi not executable -> install error 10111")
                 print("\n[ui/index.cgi] %s %s" % (oct(cgi.mode),
                                                   "0755 OK" if cgi.mode & 0o111 else "NOT EXECUTABLE"))
                 body = inner.extractfile(cgi).read()
                 if b"\r\n" in body:
-                    failures.append("ui/index.cgi still has CRLF -> 'bad interpreter'")
+                    _fail(failures, "ui/index.cgi still has CRLF -> 'bad interpreter'")
                 print("[ui/index.cgi CRLF] %s" % ("YES (bad)" if b"\r\n" in body else "no"))
                 if not body.startswith(b"#!"):
-                    failures.append("ui/index.cgi has no shebang")
+                    _fail(failures, "ui/index.cgi has no shebang")
 
             for name in ("ui/config", "web/index.html"):
                 if name in imembers:
