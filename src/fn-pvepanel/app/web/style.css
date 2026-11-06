@@ -704,14 +704,14 @@ canvas { display: block; width: 100%; height: 100%; }
  * Update section
  * ================================================================ */
 .vhero {
-  display: flex; align-items: center; justify-content: center; gap: 18px;
-  padding: 18px 12px; border-radius: var(--radius);
-  background: var(--muted); margin-bottom: 12px;
+  display: flex; align-items: center; gap: 18px;
+  padding: 18px 16px; margin-bottom: 12px;
+  border: 1px solid var(--border); border-radius: var(--radius-lg);
 }
-.vcol { display: flex; flex-direction: column; align-items: center; gap: 4px; min-width: 0; }
+.vcol { flex: 1 1 0; min-width: 0; text-align: center; }
 .vk { font-size: 12px; color: var(--faint); }
 .vv {
-  font-size: 22px; font-weight: 600; letter-spacing: -.02em;
+  margin-top: 4px; font-size: 26px; font-weight: 600; letter-spacing: -.02em;
   font-variant-numeric: tabular-nums; white-space: nowrap;
 }
 .vv.fresh { color: var(--accent-bar); }
@@ -723,13 +723,31 @@ canvas { display: block; width: 100%; height: 100%; }
   padding: 12px 14px; border-radius: var(--radius);
   border: 1px solid var(--border); flex-wrap: wrap;
 }
-.vstatus.has { background: color-mix(in srgb, var(--warn) 9%, transparent); border-color: color-mix(in srgb, var(--warn) 28%, transparent); }
-.vstatus.has .vsic { color: var(--warn); }
-.vstatus.idle { background: color-mix(in srgb, var(--ok) 7%, transparent); border-color: color-mix(in srgb, var(--ok) 20%, transparent); }
-.vstatus.idle .vsic { color: var(--ok); }
-.vsic { flex: 0 0 18px; width: 18px; height: 18px; display: flex; align-items: center; justify-content: center; }
-.vstext { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-.vstext b { font-weight: 600; font-size: 13px; }
+.vstatus.has {
+  border-color: color-mix(in srgb, var(--warn) 40%, var(--border));
+  background: color-mix(in srgb, var(--warn) 8%, transparent);
+}
+.vstatus.has .vsic {
+  background: color-mix(in srgb, var(--warn) 20%, transparent);
+  color: color-mix(in srgb, var(--warn) 75%, var(--text));
+}
+.vstatus.idle {
+  border-color: color-mix(in srgb, var(--ok) 34%, var(--border));
+  background: color-mix(in srgb, var(--ok) 8%, transparent);
+}
+.vstatus.idle .vsic {
+  background: color-mix(in srgb, var(--ok) 20%, transparent);
+  color: color-mix(in srgb, var(--ok) 75%, var(--text));
+}
+/* The status icon carries as much weight as the text beside it: a 34px disc
+   with a tinted background, not an 18px glyph that the headline dwarfs. */
+.vsic {
+  flex: 0 0 34px; width: 34px; height: 34px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--muted); color: var(--dim);
+}
+.vstext { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1 1 180px; }
+.vstext b { font-weight: 600; font-size: 13.5px; }
 .vstext span { font-size: 12px; color: var(--dim); }
 
 /* One-click update overlay. The install stops the service, so the page WILL
@@ -886,10 +904,14 @@ canvas { display: block; width: 100%; height: 100%; }
   .alert .txt { flex: 1 1 100%; }
   .row-acts { flex: 1 1 100%; justify-content: flex-start; margin-left: 0; margin-top: 6px; }
 
-  .vhero { gap: 10px; padding: 14px 8px; }
-  .vv { font-size: 18px; }
-  .vstatus { gap: 8px; }
-  .vstatus .btn { flex: 1 1 auto; }
+  .vhero { padding: 14px 10px; gap: 10px; }
+  .vv { font-size: 21px; }
+  .vstatus { gap: 10px; }
+  /* Phone: the headline takes the full first row and the buttons drop to a
+     second, full-width row (thumb reach). Sharing one row squeezes the text
+     against the buttons until the title wraps mid-phrase. */
+  .vstext { flex: 1 1 100%; order: 2; }
+  .vstatus .btn { order: 3; flex: 1 1 auto; }
   .upoverlay-box { padding: 18px 16px 14px; }
 
   /* backup table: filename gets the room, size moves under it */
