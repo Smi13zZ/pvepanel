@@ -1,5 +1,17 @@
 # 更新日志
 
+## 26.11.10
+
+**修复**
+
+- 打包校验（CI 的 Verify the package 步骤）失败时不给原因：现在 `inspect_fpk` 每个失败当场打印，
+  workflow 再把 FAIL/WARN 行转成 GitHub 注解，失败原因在 Actions 页面上直接可见。
+
+**改进**
+
+- 构建用的 GitHub Actions 升级到 checkout v5 / setup-python v6 / upload-artifact v5，
+  去掉 Node 20 弃用告警；失败时额外上传一份校验诊断文件。
+
 ## 26.11.9
 
 **修复**
