@@ -1,0 +1,173 @@
+name: build-fpk
+
+# Build the fnOS package on GitHub and publish it:
+#   * push a v* tag        -> build + upload artifact + publish a Release for that tag
+#   * workflow_dispatch    -> build + upload artifact only (no Release)
+#
+# The version comes from src/fn-pvepanel/manifest, so a release is:
+#   bump manifest (+ ?v= in index.html, CHANGELOG) -> commit -> tag -> push tag
+#
+# Publishing is gated on the tag matching the manifest version, so a throwaway
+# tag such as v26.11.7-ci1 only produces an artifact and never touches the
+# Releases page.
+
+"on":
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build-fpk-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  FNPACK_URL: https://static2.fnnas.com/fnpack/fnpack-1.2.3-linux-amd64
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Read version from the manifest
+        id: meta
+        run: |
+          set -euo pipefail
+          M=src/fn-pvepanel/manifest
+          field() { awk -F= -v k="$1" '{n=$1; gsub(/[ \t]/,"",n); if(n==k){v=$2; gsub(/[ \t]/,"",v); print v}}' "$M"; }
+          ver="$(field version)"
+          app="$(field appname)"
+          plat="$(field platform)"
+          port="$(field service_port)"
+          [ -n "$ver" ] || { echo "manifest has no version"; exit 1; }
+          [ -n "$app" ] || { echo "manifest has no appname"; exit 1; }
+          echo "version=$ver" >> "$GITHUB_OUTPUT"
+          echo "app=$app" >> "$GITHUB_OUTPUT"
+          echo "platform=$plat" >> "$GITHUB_OUTPUT"
+          echo "port=$port" >> "$GITHUB_OUTPUT"
+          if [ "${GITHUB_REF_TYPE:-}" = "tag" ] && [ "${GITHUB_REF_NAME:-}" = "v$ver" ]; then
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+          fi
+          echo "building $app $ver ($plat), publish=${GITHUB_REF_NAME:-none}"
+
+      - name: Structure check
+        run: |
+          set -euo pipefail
+          python3 tools/check_structure.py
+          # py_compile alone is not enough: an indentation slip that moves a
+          # method out of its class, or a name used but never defined, both
+          # compile cleanly and only fail on the device at request time.
+          python3 -m compileall -q src/fn-pvepanel/app/server
+
+      - name: Syntax check the front-end
+        run: |
+          set -euo pipefail
+          for f in src/fn-pvepanel/app/web/js/*.js; do
+            node --check "$f"
+            echo "  ok  $f"
+          done
+
+      - name: Unit tests
+        run: |
+          set -euo pipefail
+          python3 tools/test_bootstrap.py
+          python3 tools/test_maint.py
+          python3 tools/test_upgrade_installer.py
+          python3 tools/test_notify.py
+          python3 tools/test_update.py
+
+      - name: Install fnpack
+        run: |
+          set -euo pipefail
+          curl -fsSL -o /tmp/fnpack "$FNPACK_URL"
+          chmod +x /tmp/fnpack
+          sudo mv /tmp/fnpack /usr/local/bin/fnpack
+          fnpack --help >/dev/null
+          echo "fnpack ready"
+
+      - name: Stage the package tree
+        run: |
+          set -euo pipefail
+          rm -rf /tmp/build && mkdir -p /tmp/build
+          cp -a src/fn-pvepanel/. /tmp/build/
+          find /tmp/build -name "__pycache__" -type d -prune -exec rm -rf {} +
+          find /tmp/build -type f \( -name "*.pyc" -o -name "*.pyo" -o -name "*.fpk" -o -name ".DS_Store" \) -delete
+          # fnpack needs the exec bits; a fresh checkout has everything 0644
+          find /tmp/build -type d -exec chmod 755 {} +
+          find /tmp/build -type f -exec chmod 644 {} +
+          chmod 755 /tmp/build/cmd/* /tmp/build/app/ui/index.cgi
+          # ICON.PNG / ICON_256.PNG must keep their ALPHA channel: the rounded
+          # corners are the alpha, and an RGB conversion paints them black.
+          python3 - <<'PY'
+          import os
+          from struct import unpack
+          for name in ("ICON.PNG", "ICON_256.PNG"):
+              path = os.path.join("/tmp/build", name)
+              data = open(path, "rb").read()
+              # PNG IHDR: width, height, bit depth, colour type
+              colour_type = data[25]
+              w, h = unpack(">II", data[16:24])
+              assert colour_type == 6, "%s is colour type %d, expected 6 (RGBA)" % (name, colour_type)
+              print("  ok  %s %dx%d RGBA" % (name, w, h))
+          PY
+          ls -l /tmp/build | head -20
+
+      - name: Build
+        run: |
+          set -euo pipefail
+          cd /tmp/build
+          fnpack build
+          out="$GITHUB_WORKSPACE/${{ steps.meta.outputs.app }}-${{ steps.meta.outputs.version }}-fnos-${{ steps.meta.outputs.platform }}.fpk"
+          mv "${{ steps.meta.outputs.app }}.fpk" "$out"
+          ls -l "$out"
+          sha256sum "$out"
+
+      - name: Verify the package
+        run: |
+          set -euo pipefail
+          for f in "$GITHUB_WORKSPACE"/*.fpk; do
+            python3 tools/inspect_fpk.py "$f" --strict
+          done
+
+      - name: Compose release notes
+        if: steps.meta.outputs.publish == 'true'
+        run: |
+          set -euo pipefail
+          ver="${{ steps.meta.outputs.version }}"
+          awk -v v="$ver" '
+            $0 ~ "^## "v"[ \t]*$" {flag=1; print "## PVEpanel "v; print ""; skip=1; next}
+            flag && skip && $0 ~ /^[ \t]*$/ {skip=0; next}
+            flag && /^## / {exit}
+            flag {print}
+          ' CHANGELOG.md > /tmp/release-body.md
+          printf '\n### 安装\n\n1. 下载下方 `%s-%s-fnos-%s.fpk`\n2. 飞牛 fnOS → 应用中心 → 手动安装 → 选择该文件\n3. 已经在旧版本的，可以直接在「设置 → 更新」里点一键更新\n' \
+            "${{ steps.meta.outputs.app }}" "$ver" "${{ steps.meta.outputs.platform }}" >> /tmp/release-body.md
+          echo "----- release body -----"
+          cat /tmp/release-body.md
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.meta.outputs.app }}-${{ steps.meta.outputs.version }}-fnos-${{ steps.meta.outputs.platform }}
+          path: ${{ github.workspace }}/*.fpk
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Publish release
+        if: steps.meta.outputs.publish == 'true'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: PVEpanel ${{ steps.meta.outputs.version }}
+          body_path: /tmp/release-body.md
+          files: ${{ github.workspace }}/*.fpk
+          fail_on_unmatched_files: true

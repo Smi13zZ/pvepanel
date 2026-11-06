@@ -1,0 +1,995 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="light dark">
+<title>PVEpanel</title>
+<link rel="icon" href="./images/icon.svg">
+<link rel="stylesheet" href="./style.css?v=26.11.4">
+</head>
+<body>
+<div id="app" v-cloak>
+<h2 class="sr-only">PVEpanel</h2>
+
+<div class="shell" :class="{ collapsed: collapsed }">
+
+  <aside class="side" :class="{ open: navOpen }">
+    <nav class="nav">
+      <button v-for="n in navItems" :key="n.id" class="nav-item"
+              :class="{ on: view === n.id }" :title="t(n.key)"
+              @click="go(n.id)">
+        <span class="ic" v-html="ic(n.icon)"></span>
+        <span class="label">{{ t(n.key) }}</span>
+        <span class="badge" v-if="n.id === 'guests' && guestCount">{{ guestCount }}</span>
+        <span class="badge" v-if="n.id === 'dash' && alertErrors" style="background:var(--danger);color:#fff">{{ alertErrors }}</span>
+        <i class="nav-alert" v-if="n.id === 'settings' && updateNew" role="img"
+           :title="t('update.found', { v: updateInfo.latest })"></i>
+      </button>
+    </nav>
+
+    <div class="side-foot">
+      <div class="foot-row">
+        <button class="icon-btn" @click="cycleTheme" :title="themeTooltip" :aria-label="themeTooltip">
+          <span v-html="ic(themeIcon)"></span>
+        </button>
+        <button class="icon-btn" @click="toggleLang" :title="t('side.lang')" :aria-label="t('side.lang')">
+          <span v-html="ic('lang')"></span>
+        </button>
+      </div>
+      <div class="ver-line" :title="'PVEpanel v' + appVersion">
+        <span class="ic" style="width:14px;height:14px;display:flex;align-items:center;justify-content:center" v-html="ic('globe')"></span>
+        <span class="mono">v{{ appVersion }}<template v-if="pveVersion"> · PVE {{ pveVersion }}</template></span>
+      </div>
+      <button class="icon-btn wide ghost collapse-btn" @click="collapsed = !collapsed"
+              :title="collapsed ? t('side.expand') : t('side.collapse')">
+        <span v-html="ic(collapsed ? 'expand' : 'collapse')"></span>
+      </button>
+    </div>
+  </aside>
+  <div class="mask" v-if="navOpen" @click="navOpen = false" style="justify-content:flex-start;background:rgba(0,0,0,.4)"></div>
+
+  <div class="main">
+    <header class="topbar">
+      <button class="icon-btn ghost mobile-only" @click="navOpen = !navOpen" :title="t('side.menu')">
+        <span v-html="ic('menu')"></span>
+      </button>
+      <div class="page-title">{{ pageTitle }}</div>
+      <div class="spacer"></div>
+
+      <!-- server switcher: the panel talks to one cluster at a time, and this is
+           where you pick which. Hidden while there is only one. -->
+      <select v-if="!isMobile && servers.length > 1" class="select topbar-server"
+              :value="activeId" @change="switchServer($event.target.value)"
+              :title="t('top.switchServer')">
+        <option v-for="s in servers" :key="s.id" :value="s.id">{{ s.name || s.host }}</option>
+      </select>
+      <button v-else-if="isMobile && servers.length > 1" type="button"
+              class="select picker-trigger topbar-server" @click="pickServer">
+        <span class="v">{{ activeServerName }}</span>
+      </button>
+
+      <!-- The active endpoint is status information, not a page: it belongs in
+           the bar next to the connection dot so it stays visible on every
+           page, including 虚拟机. -->
+      <span class="chip srv-chip" v-if="servers.length" :title="activeAddr">
+        <i class="dot" :class="connTone"></i>
+        <span class="hide-sm">{{ activeServerName }}</span>
+        <span class="chip-sub mono hide-md">{{ activeAddr }}</span>
+      </span>
+      <span class="chip" :title="connTitle" v-else>
+        <i class="dot" :class="connTone"></i>
+        <span class="hide-sm">{{ connText }}</span>
+      </span>
+
+      <button class="icon-btn" @click="refresh(true)" :disabled="busy" :title="t('top.refresh')">
+        <span v-html="ic('refresh')"></span>
+      </button>
+    </header>
+
+    <div class="content">
+
+      <!-- ---------- no server at all ---------- -->
+      <div class="card empty" v-if="loaded && !servers.length">
+        <div class="ic" v-html="ic('shield')"></div>
+        <h3>{{ t('set.noServer') }}</h3>
+        <p>{{ t('set.addrHint') }}</p>
+        <button class="btn primary" @click="openServerForm(null)">{{ t('set.addServer') }}</button>
+      </div>
+
+      <!-- ---------- auth failed: circuit-broken ---------- -->
+      <div class="card" v-if="authFailed && servers.length">
+        <h3>{{ t('top.authFailed') }}</h3>
+        <p class="dim" style="margin:0 0 14px">
+          <template v-if="stale">{{ t('dash.frozen') }} · {{ staleAge }}</template>
+          <template v-else>{{ t('guest.noPerm') }}</template>
+        </p>
+        <button class="btn primary" @click="go('settings')">{{ t('nav.settings') }}</button>
+      </div>
+
+      <!-- ================= 概览 ================= -->
+      <template v-if="view === 'dash' && servers.length">
+        <!-- One server at a time: CPU, memory and load are separate cards so a
+             number that is out of range cannot hide behind another. -->
+        <div class="grid c3" v-if="node">
+          <div class="stat">
+            <div class="k">
+              <span class="ic" v-html="ic('cpu')"></span>
+              <span>{{ t('dash.cpu') }}</span>
+              <span class="faint" style="margin-left:auto;font-size:12px">{{ t('dash.cores', { n: node.maxcpu }) }}</span>
+            </div>
+            <div class="hl">
+              <span class="big">{{ FMT.fmtPercent(node.cpu) }}</span>
+            </div>
+            <div class="mini">
+              <div class="bar"><i :class="toneFor(node.cpu, 1)" :style="{ width: FMT.pct(node.cpu) + '%' }"></i></div>
+            </div>
+            <div class="sub2">{{ node.cpumodel || '—' }}</div>
+          </div>
+
+          <div class="stat">
+            <div class="k">
+              <span class="ic" v-html="ic('mem')"></span>
+              <span>{{ t('dash.mem') }}</span>
+              <span class="faint" style="margin-left:auto;font-size:12px">{{ FMT.fmtBytes(node.maxmem) }}</span>
+            </div>
+            <div class="hl">
+              <span class="big">{{ FMT.fmtPercent(node.mem / (node.maxmem || 1)) }}</span>
+            </div>
+            <div class="mini">
+              <div class="bar"><i :class="toneFor(node.mem, node.maxmem)" :style="{ width: ratio(node.mem, node.maxmem) + '%' }"></i></div>
+            </div>
+            <div class="sub2"><b>{{ FMT.fmtBytes(node.mem) }}</b> / {{ FMT.fmtBytes(node.maxmem) }}</div>
+          </div>
+
+          <div class="stat">
+            <div class="k">
+              <span class="ic" v-html="ic('gauge')"></span>
+              <span>{{ t('dash.load') }}</span>
+              <span class="faint" style="margin-left:auto;font-size:12px">1 / 5 / 15</span>
+            </div>
+            <div class="hl">
+              <span class="big">{{ loadOne }}</span>
+              <span class="unit">/ {{ node.maxcpu }}</span>
+            </div>
+            <div class="mini">
+              <div class="bar"><i :class="loadTone" :style="{ width: loadPct + '%' }"></i></div>
+            </div>
+            <div class="sub2">{{ loadText }}</div>
+          </div>
+        </div>
+
+        <div class="grid c2" style="margin-top:var(--gap)">
+          <div class="card">
+            <div class="card-head">
+              <h3>{{ t('dash.overview') }}</h3>
+              <div class="spacer"></div>
+              <span class="state" :class="cluster.onlineCount === cluster.total ? 'running' : 'unknown'" v-if="cluster.total">
+                <i class="dot"></i>{{ cluster.onlineCount }}/{{ cluster.total }} {{ t('dash.online') }}
+              </span>
+            </div>
+            <div class="kv">
+              <div class="k">{{ t('dash.clusterName') }}</div>
+              <div class="v">{{ cluster.name || '—' }}</div>
+              <div class="k">{{ t('dash.quorate') }}</div>
+              <div class="v">
+                <span class="state" :class="cluster.quorate ? 'running' : cluster.quorate === false ? 'unknown' : 'stopped'">
+                  <i class="dot"></i>{{ cluster.quorate === null ? t('dash.unknown') : (cluster.quorate ? t('dash.normal') : t('dash.lostQuorum')) }}
+                </span>
+              </div>
+              <div class="k">{{ t('dash.guests') }}</div>
+              <div class="v">{{ runningCount }} {{ t('dash.running') }} · {{ guestCount }} {{ t('dash.total') }}</div>
+              <div class="k">{{ t('dash.ha') }}</div>
+              <div class="v">{{ haSummary }}</div>
+              <div class="k">{{ t('dash.kernel') }}</div>
+              <div class="v mono">{{ node ? (node.kernel || '—') : '—' }}</div>
+              <div class="k">{{ t('dash.boot') }}</div>
+              <div class="v">{{ bootText }}</div>
+              <div class="k">{{ t('dash.uptime') }}</div>
+              <div class="v">{{ node ? FMT.fmtDuration(node.uptime) : '—' }}</div>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-head"><h3>{{ t('dash.alerts') }}</h3><div class="spacer"></div>
+              <span class="chip" v-if="alerts.length">{{ t('dash.count', { n: alerts.length }) }}</span>
+            </div>
+            <div class="alerts" v-if="alerts.length">
+              <div class="alert" v-for="(a, i) in alerts.slice(0, 6)" :key="i" :class="a.level">
+                <span class="ic" v-html="ic(a.level === 'err' ? 'alert' : 'info')"></span>
+                <div class="txt"><b>{{ alertTitle(a) }}</b> <span class="d">{{ alertText(a) }}</span></div>
+              </div>
+            </div>
+            <div class="alert ok" v-else-if="!stale">
+              <span class="ic" v-html="ic('check')"></span>
+              <div class="txt"><b>{{ t('dash.noAlerts') }}</b> <span class="d">{{ t('dash.noAlertsSub') }}</span></div>
+            </div>
+            <div class="alert warn" v-else>
+              <span class="ic" v-html="ic('info')"></span>
+              <div class="txt"><b>{{ t('dash.frozen') }}</b> <span class="d">{{ t('dash.frozenSub') }}</span></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="card" style="margin-top:var(--gap)" v-if="node">
+          <div class="card-head">
+            <h3>{{ t('dash.chart') }}</h3>
+            <div class="spacer"></div>
+            <div class="seg">
+              <button v-for="tf in timeframes" :key="tf.v" :class="{ on: timeframe === tf.v }" @click="pickTf(tf.v)">{{ tf.label }}</button>
+            </div>
+          </div>
+          <div class="chart-wrap"><canvas ref="nodeChart"></canvas></div>
+          <div class="chart-legend">
+            <span class="legend" v-for="s in nodeSeries" :key="s.key">
+              <i class="dot" :style="{ background: s.color }"></i>{{ s.label }}
+            </span>
+            <span class="spacer"></span>
+            <span class="legend faint">{{ tfSpanText }}</span>
+          </div>
+        </div>
+
+        <div class="card" style="margin-top:var(--gap)">
+          <div class="card-head"><h3>{{ t('dash.storage') }}</h3><div class="spacer"></div>
+            <span class="faint" style="font-size:12px">{{ t('storage.count', { n: storages.length }) }}</span>
+          </div>
+          <div class="grid c4">
+            <div class="stat" v-for="s in storages" :key="s.node + '/' + s.storage">
+              <div class="k">
+                <span class="ic" v-html="ic('storage')"></span>
+                <span class="ellipsis">{{ s.storage }}</span>
+                <span class="tag" style="margin-left:auto">{{ s.type }}</span>
+              </div>
+              <div class="hl">
+                <span class="big">{{ Math.round(s.frac * 100) }}%</span>
+                <span class="unit">{{ t('storage.used') }}</span>
+              </div>
+              <div class="mini">
+                <div class="bar"><i :class="s.frac >= 0.9 ? 'err' : s.frac >= 0.85 ? 'warn' : ''" :style="{ width: (s.frac * 100) + '%' }"></i></div>
+              </div>
+              <div class="sub2"><b>{{ FMT.fmtBytes(s.used) }}</b> / {{ FMT.fmtBytes(s.total) }}</div>
+            </div>
+          </div>
+        </div>
+      </template>
+
+      <!-- ================= 虚拟机 ================= -->
+      <template v-if="view === 'guests' && servers.length">
+        <div class="toolbar">
+          <div class="seg">
+            <button :class="{ on: gfilter === 'all' }" @click="gfilter = 'all'">{{ t('guest.all') }} {{ guests.length }}</button>
+            <button :class="{ on: gfilter === 'running' }" @click="gfilter = 'running'">{{ t('guest.running') }} {{ runningCount }}</button>
+            <button :class="{ on: gfilter === 'stopped' }" @click="gfilter = 'stopped'">{{ t('guest.stopped') }} {{ guests.length - runningCount }}</button>
+          </div>
+          <div class="spacer"></div>
+          <input class="input" style="max-width:220px" v-model="gsearch" :placeholder="t('guest.search')">
+        </div>
+
+        <div class="card flush">
+          <div class="tscroll">
+            <table class="ttable tlist">
+              <thead>
+                <tr>
+                  <th>{{ t('guest.vmid') }}</th>
+                  <th>{{ t('guest.name') }}</th>
+                  <th>{{ t('guest.state') }}</th>
+                  <th>{{ t('guest.cpu') }}</th>
+                  <th>{{ t('guest.mem') }}</th>
+                  <th>{{ t('guest.uptime') }}</th>
+                  <th>{{ t('guest.type') }}</th>
+                  <th class="col-acts">{{ t('guest.actions') }}</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="g in filteredGuests" :key="g.node + '-' + g.vmid">
+                  <td class="mono">{{ g.vmid }}</td>
+                  <td class="name ellipsis">
+                    <span :title="g.name">{{ g.name }}</span>
+                    <span v-if="g.template" class="tag" style="margin-left:6px">{{ t('guest.template') }}</span>
+                  </td>
+                  <td>
+                    <span class="state" :class="g.status">
+                      <i class="dot"></i>{{ stateText(g.status) }}
+                    </span>
+                  </td>
+                  <td>{{ g.cpu === undefined || g.cpu === null ? '—' : FMT.fmtPercent(g.cpu) }}</td>
+                  <td>
+                    <div class="mini" v-if="g.mem !== undefined && g.mem !== null">
+                      <div class="bar"><i :class="toneFor(g.mem, g.maxmem)" :style="{ width: ratio(g.mem, g.maxmem) + '%' }"></i></div>
+                      <span class="num">{{ FMT.fmtPercent(g.mem / (g.maxmem || 1)) }}</span>
+                    </div>
+                    <span v-else class="faint">—</span>
+                  </td>
+                  <td class="dim">{{ FMT.fmtDuration(g.uptime) }}</td>
+                  <td><span class="tag">{{ g.type === 'lxc' ? t('guest.ct') : t('guest.vm') }}</span></td>
+                  <td class="col-acts">
+                    <div class="acts">
+                      <button class="btn sm icon" v-if="g.status !== 'running'" :title="t('guest.start')"
+                              :disabled="acting === g.vmid" @click="guestAction(g, 'start')">
+                        <span v-html="ic('play')"></span>
+                      </button>
+                      <template v-else>
+                        <button class="btn sm icon" :title="t('guest.reboot')"
+                                :disabled="acting === g.vmid" @click="guestAction(g, 'reboot')">
+                          <span v-html="ic('reboot')"></span>
+                        </button>
+                        <button class="btn sm icon" :title="t('guest.shutdown')"
+                                :disabled="acting === g.vmid" @click="guestAction(g, 'shutdown')">
+                          <span v-html="ic('power')"></span>
+                        </button>
+                        <button class="btn sm icon danger" :title="t('guest.stop')"
+                                :disabled="acting === g.vmid" @click="guestAction(g, 'stop')">
+                          <span v-html="ic('square')"></span>
+                        </button>
+                      </template>
+                    </div>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="empty" v-if="!filteredGuests.length">
+            <div class="ic" v-html="ic('server')"></div>
+            <h3>{{ t('guest.empty') }}</h3>
+            <p>{{ t('guest.emptySub') }}</p>
+          </div>
+          <div class="scroll-hint" v-if="filteredGuests.length">{{ t('common.scrollHint') }}</div>
+        </div>
+      </template>
+
+      <!-- ================= 存储 ================= -->
+      <template v-if="view === 'storage' && servers.length">
+        <div class="grid c1">
+          <div class="card strow" v-for="s in storages" :key="s.node + '/' + s.storage">
+            <div class="stcol stcol-ring">
+              <div class="ring-box"><canvas :ref="'ring-' + s.node + '-' + s.storage"></canvas></div>
+            </div>
+            <div class="stcol stcol-main">
+              <div class="card-head">
+                <span class="ic" style="width:18px;height:18px;display:flex;align-items:center" v-html="ic('storage')"></span>
+                <h3>{{ s.storage }}</h3>
+                <span class="tag">{{ s.type }}</span>
+                <div class="spacer"></div>
+                <span class="state" :class="s.active ? 'running' : 'stopped'"><i class="dot"></i>{{ s.active ? t('storage.online') : t('storage.offline') }}</span>
+              </div>
+              <div class="hl"><span class="big">{{ FMT.fmtBytes(s.used) }}</span><span class="unit">/ {{ FMT.fmtBytes(s.total) }}</span></div>
+              <div class="kv stkv">
+                <div class="k">{{ t('storage.avail') }}</div><div class="v">{{ FMT.fmtBytes(s.avail) }}</div>
+                <div class="k">{{ t('storage.content') }}</div>
+                <div class="v"><span class="tags"><span class="tag" v-for="c in FMT.contentChips(s.content)" :key="c">{{ c }}</span></span></div>
+                <div class="k">{{ t('storage.node') }}</div><div class="v">{{ s.node }}</div>
+                <div class="k">{{ t('storage.shared') }}</div><div class="v">{{ s.shared ? t('storage.yes') : t('storage.no') }}</div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="card empty" v-if="!storages.length">
+          <div class="ic" v-html="ic('storage')"></div>
+          <h3>{{ t('storage.empty') }}</h3>
+          <p>{{ t('storage.emptySub') }}</p>
+        </div>
+      </template>
+
+      <!-- ================= 磁盘 ================= -->
+      <template v-if="view === 'disks' && servers.length">
+        <div class="card flush">
+          <div class="tscroll">
+            <table class="ttable tdisk">
+              <thead>
+                <tr>
+                  <th>{{ t('disk.dev') }}</th><th>{{ t('disk.model') }}</th>
+                  <th>{{ t('disk.size') }}</th>
+                  <th>{{ t('disk.type') }}</th>
+                  <th>{{ t('disk.health') }}</th>
+                  <th>{{ t('disk.temp') }}</th>
+                  <th>{{ t('disk.wear') }}</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="d in disks" :key="d.node + d.devpath">
+                  <td class="mono">{{ d.devpath }}</td>
+                  <td class="ellipsis">{{ d.model || '—' }}</td>
+                  <td>{{ FMT.fmtBytes(d.size) }}</td>
+                  <td><span class="tag">{{ d.type || '—' }}</span></td>
+                  <td>
+                    <span class="state" :class="FMT.healthTone(d.health) === 'ok' ? 'running' : FMT.healthTone(d.health) === 'err' ? 'unknown' : 'stopped'">
+                      <i class="dot"></i>{{ d.health || t('disk.unknown') }}
+                    </span>
+                  </td>
+                  <td>
+                    <span v-if="d.temp !== null && d.temp !== undefined" :style="{ color: 'var(--' + FMT.tempTone(d.temp, settings.temp_warn, settings.temp_crit) + ')' }">
+                      {{ d.temp }} °C
+                    </span>
+                    <span v-else class="faint">—</span>
+                  </td>
+                  <td class="dim">{{ wearText(d.wearout) }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="empty" v-if="!disks.length">
+            <div class="ic" v-html="ic('disk')"></div>
+            <h3>{{ t('disk.empty') }}</h3>
+            <p>{{ t('disk.emptySub') }}</p>
+          </div>
+          <div class="scroll-hint" v-if="disks.length">{{ t('common.scrollHint') }}</div>
+        </div>
+
+        <div class="card" style="margin-top:var(--gap)" v-if="backupGaps.length">
+          <div class="card-head"><h3>{{ t('disk.noBackup') }}</h3><div class="spacer"></div>
+            <span class="chip">{{ t('dash.count', { n: backupGaps.length }) }}</span>
+          </div>
+          <div class="alerts">
+            <div class="alert warn" v-for="(g, i) in backupGaps" :key="i">
+              <span class="ic" v-html="ic('alert')"></span>
+              <div class="txt"><b>{{ g.name || ('VMID ' + g.vmid) }}</b>
+                <span class="d">{{ t('disk.noBackupSub', { type: g.type === 'lxc' ? t('guest.ct') : t('guest.vm'), vmid: g.vmid, node: g.node ? ' · ' + g.node : '' }) }}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </template>
+
+      <!-- ================= 任务 ================= -->
+      <template v-if="view === 'tasks' && servers.length">
+        <div class="toolbar">
+          <div class="seg">
+            <button :class="{ on: taskTab === 'tasks' }" @click="setTaskTab('tasks')">
+              {{ t('task.tabTasks') }} {{ tasks.length }}
+            </button>
+            <button :class="{ on: taskTab === 'subs' }" @click="setTaskTab('subs')">{{ t('task.tabSubs') }}</button>
+            <button :class="{ on: taskTab === 'services' }" @click="setTaskTab('services')">{{ t('task.tabServices') }}</button>
+          </div>
+        </div>
+
+        <div class="card flush" v-if="taskTab === 'tasks'">
+          <div class="tscroll">
+            <table class="ttable ttasks">
+              <thead>
+                <tr>
+                  <th>{{ t('task.type') }}</th>
+                  <th>{{ t('task.object') }}</th>
+                  <th>{{ t('task.result') }}</th>
+                  <th>{{ t('task.start') }}</th>
+                  <th>{{ t('task.duration') }}</th>
+                  <th>{{ t('task.node') }}</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="tk in pagedTasks" :key="tk.upid">
+                  <td>{{ taskLabel(tk.type) }}</td>
+                  <td class="mono">{{ tk.id || '—' }}</td>
+                  <td>
+                    <span class="state" :class="FMT.taskState(tk).tone === 'ok' ? 'running' : FMT.taskState(tk).tone === 'err' ? 'unknown' : 'paused'">
+                      <i class="dot"></i>{{ taskStateText(tk) }}
+                    </span>
+                  </td>
+                  <td class="dim">{{ FMT.fmtAgo(tk.starttime) }}</td>
+                  <td class="dim">{{ tk.endtime ? FMT.fmtDuration(tk.endtime - tk.starttime) : '—' }}</td>
+                  <td class="dim">{{ tk.node }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="empty" v-if="!tasks.length">
+            <div class="ic" v-html="ic('list')"></div>
+            <h3>{{ t('task.empty') }}</h3>
+            <p>{{ t('task.emptySub') }}</p>
+          </div>
+          <div class="pager" v-if="taskPages > 1">
+            <button class="btn sm" :disabled="taskPage <= 1" @click="taskPage--">{{ t('common.prev') }}</button>
+            <span class="pager-info">{{ t('common.pageInfo', { a: taskPage, b: taskPages }) }}</span>
+            <button class="btn sm" :disabled="taskPage >= taskPages" @click="taskPage++">{{ t('common.next') }}</button>
+            <div class="spacer"></div>
+            <span class="faint" style="font-size:12px">{{ t('common.total', { n: tasks.length }) }}</span>
+          </div>
+        </div>
+
+        <div class="card" v-if="taskTab === 'subs'">
+          <div class="card-head"><h3>{{ t('task.subs') }}</h3></div>
+          <div class="kv" v-for="(s, node) in subs" :key="node">
+            <div class="k">{{ node }}</div>
+            <div class="v">{{ subText(s) }}</div>
+          </div>
+          <div class="faint" v-if="!Object.keys(subs).length">{{ t('task.noSub') }}</div>
+        </div>
+
+        <div class="card" v-if="taskTab === 'services'">
+          <div class="card-head"><h3>{{ t('task.services') }}</h3><div class="spacer"></div>
+            <span class="chip">{{ services.length }}</span>
+          </div>
+          <div class="alerts">
+            <div class="alert" v-for="s in services" :key="s.node + s.service" :class="s.active ? 'ok' : 'err'">
+              <span class="ic" v-html="ic(s.active ? 'check' : 'alert')"></span>
+              <div class="txt"><b>{{ s.service }}</b> <span class="d">{{ s.node }} · {{ s.state }}</span></div>
+            </div>
+          </div>
+          <div class="faint" v-if="!services.length">{{ t('task.noServices') }}</div>
+        </div>
+      </template>
+
+      <!-- ================= 设置 ================= -->
+      <template v-if="view === 'settings'">
+        <div class="workbar">
+          <button v-for="s in setSections" :key="s.id" :class="{ on: setTab === s.id }" @click="setTab = s.id">
+            {{ s.label }}<i class="workbar-dot" v-if="s.id === 'update' && updateNew"></i>
+          </button>
+        </div>
+
+        <!-- ---- servers ---- -->
+        <template v-if="setTab === 'servers'">
+          <div class="card">
+            <div class="card-head"><h3>{{ t('set.servers') }}</h3><div class="spacer"></div>
+              <button class="btn sm primary" @click="openServerForm(null)">
+                <span v-html="ic('plus')"></span>{{ t('set.addServer') }}
+              </button>
+            </div>
+
+            <!-- Endpoint cards. The active one is marked with a tag and the
+                 status dot, not a tinted background: a coloured row reads as
+                 "healthy" in this design system, which is what the 正常 tag is
+                 for. -->
+            <div class="srvgrid" v-if="servers.length">
+              <div class="srvcard" v-for="s in servers" :key="s.id" :class="{ current: s.id === activeId }">
+                <div class="srvhead">
+                  <span class="srvname" :title="s.name || s.host">{{ s.name || s.host }}</span>
+                  <span class="tag tag-cur" v-if="s.id === activeId">{{ t('set.current') }}</span>
+                  <div class="spacer"></div>
+                  <span class="state" :class="s.id === activeId ? (connTone === 'on' ? 'running' : connTone === 'err' ? 'unknown' : 'paused') : 'stopped'">
+                    <i class="dot"></i>{{ s.id === activeId ? connText : t('set.idle') }}
+                  </span>
+                </div>
+                <div class="srvurl mono">{{ s.host }}:{{ s.port }}</div>
+                <div class="srvtags">
+                  <span class="tag">Proxmox VE</span>
+                  <span class="tag">{{ s.verify_tls ? t('set.verifyOn') : t('set.verifyOff') }}</span>
+                  <span class="tag tag-warn" v-if="!s.token_set">{{ t('set.token') }}</span>
+                </div>
+                <div class="srvacts">
+                  <button class="btn sm" @click="testServer(s)" :disabled="testingServer === s.id">
+                    {{ testingServer === s.id ? t('set.testing') : t('set.test') }}
+                  </button>
+                  <button class="btn sm" v-if="s.id !== activeId" @click="switchServer(s.id)">{{ t('set.setCurrent') }}</button>
+                  <button class="btn sm" @click="openServerForm(s)">{{ t('set.edit') }}</button>
+                  <button class="btn sm danger" @click="removeServer(s)">{{ t('set.delete') }}</button>
+                </div>
+              </div>
+            </div>
+            <div class="empty" v-else style="padding:20px">
+              <h3>{{ t('set.notifyEmpty') }}</h3>
+              <p>{{ t('set.addrHint') }}</p>
+              <button class="btn primary" @click="openServerForm(null)">{{ t('set.addServer') }}</button>
+            </div>
+          </div>
+
+          <div class="card" style="margin-top:var(--gap)">
+            <div class="card-head"><h3>{{ t('set.thresholds') }}</h3></div>
+            <div class="field">
+              <label>{{ t('set.storageWarn') }}</label>
+              <input class="input" type="number" v-model.number="settings.storage_warn" style="max-width:150px">
+            </div>
+            <div class="field">
+              <label>{{ t('set.tempWarn') }}</label>
+              <div class="row" style="display:flex;gap:8px">
+                <input class="input" type="number" v-model.number="settings.temp_warn" style="max-width:120px">
+                <input class="input" type="number" v-model.number="settings.temp_crit" style="max-width:120px">
+              </div>
+            </div>
+            <div class="field">
+              <label>{{ t('set.loadWarn') }}</label>
+              <input class="input" type="number" step="0.05" v-model.number="settings.load_warn" style="max-width:150px">
+            </div>
+            <div class="field">
+              <label>{{ t('set.memWarn') }}</label>
+              <input class="input" type="number" v-model.number="settings.mem_warn" style="max-width:150px">
+            </div>
+            <div class="field">
+              <label>{{ t('set.refreshSec') }}</label>
+              <input class="input" type="number" v-model.number="settings.refresh" style="max-width:150px">
+              <div class="hint">{{ t('set.refreshHint') }}</div>
+            </div>
+            <button class="btn primary" @click="saveSettings" :disabled="saving" style="margin-top:6px">
+              {{ saving ? t('set.saving') : t('set.save') }}
+            </button>
+          </div>
+
+          <div class="card" style="margin-top:var(--gap)">
+            <div class="card-head"><h3>{{ t('set.conn') }}</h3><div class="spacer"></div>
+              <button class="btn sm" @click="runDiagnose" :disabled="diagnosing">
+                {{ diagnosing ? t('set.diagnosing') : t('set.diagnose') }}
+              </button>
+            </div>
+            <div class="diag" v-if="diag.steps && diag.steps.length">
+              <div class="diag-row" v-for="(s, i) in diag.steps" :key="i">
+                <span class="ic" :class="s.ok ? 'ok' : 'no'" v-html="ic(s.ok ? 'check' : 'close')"></span>
+                <div class="t"><b>{{ s.name }}</b><span class="d">{{ s.detail }}</span>
+                  <div class="h" v-if="s.hint">{{ s.hint }}</div>
+                </div>
+              </div>
+            </div>
+            <div class="faint" v-else>{{ t('set.diagnose') }}</div>
+          </div>
+
+          <div class="card" style="margin-top:var(--gap)">
+            <div class="card-head"><h3>{{ t('set.log') }}</h3><div class="spacer"></div>
+              <button class="btn sm" @click="loadLog">{{ t('top.refresh') }}</button>
+            </div>
+            <div class="logbox">
+              <div class="logline" v-for="(l, i) in logLines" :key="i"><span class="m">{{ l }}</span></div>
+              <div class="faint" v-if="!logLines.length">{{ t('set.logEmpty') }}</div>
+            </div>
+          </div>
+        </template>
+
+        <!-- ---- notifications ---- -->
+        <template v-if="setTab === 'notify'">
+          <div class="card">
+            <div class="card-head"><h3>{{ t('set.notify') }}</h3><div class="spacer"></div>
+              <button class="btn sm primary" @click="openChannelForm(null)">{{ t('set.notifyAdd') }}</button>
+            </div>
+            <div class="field">
+              <label class="switch">
+                <input type="checkbox" v-model="settings.notify_enabled">
+                <span>{{ t('set.notifyEnable') }}</span>
+              </label>
+            </div>
+            <div class="alerts" v-if="channels.length" style="margin-top:8px">
+              <div class="alert" v-for="ch in channels" :key="ch.id" style="border-color:var(--border)">
+                <span class="ic" v-html="ic('bell')"></span>
+                <div class="txt" style="flex:1;min-width:0">
+                  <b>{{ ch.name || chTypeLabel(ch.type) }}</b>
+                  <span class="d" style="display:block">{{ chTypeLabel(ch.type) }}</span>
+                </div>
+                <div class="row-acts">
+                  <button class="btn sm" @click="testChannel(ch)" :disabled="testing === ch.id">
+                    {{ testing === ch.id ? t('set.notifyTesting') : t('set.notifyTest') }}
+                  </button>
+                  <button class="btn sm" @click="openChannelForm(ch)">{{ t('set.edit') }}</button>
+                  <button class="btn sm danger" @click="removeChannel(ch)">{{ t('set.delete') }}</button>
+                </div>
+              </div>
+            </div>
+            <div class="empty" v-else style="padding:20px">
+              <h3>{{ t('set.notifyEmpty') }}</h3>
+              <p>{{ t('set.notifyEmptySub') }}</p>
+            </div>
+          </div>
+
+          <div class="card" style="margin-top:var(--gap)">
+            <div class="card-head"><h3>{{ t('set.notifyEvents') }}</h3></div>
+            <div class="evgrid">
+              <label class="evrow" v-for="(on, key) in settings.notify_events" :key="key">
+                <input type="checkbox" v-model="settings.notify_events[key]">
+                <div class="evtext">
+                  <b>{{ t('ev.' + key) }}</b>
+                  <span class="d">{{ t('ev.' + key + '.d') }}</span>
+                </div>
+              </label>
+            </div>
+            <button class="btn primary" @click="saveSettings" :disabled="saving" style="margin-top:12px">
+              {{ saving ? t('set.saving') : t('set.save') }}
+            </button>
+          </div>
+        </template>
+
+        <!-- ---- update ---- -->
+        <template v-if="setTab === 'update'">
+          <div class="card">
+            <div class="card-head">
+              <div style="min-width:0">
+                <h3>{{ t('update.title') }}</h3>
+                <div class="hint" style="margin-top:2px">{{ t('update.desc') }}</div>
+              </div>
+              <div class="spacer"></div>
+              <a class="btn sm" v-if="updateInfo.html_url || updateInfo.url"
+                 :href="updateInfo.html_url || updateInfo.url" target="_blank" rel="noopener noreferrer">{{ t('update.release') }}</a>
+            </div>
+
+            <div class="vhero">
+              <div class="vcol">
+                <div class="vk">{{ t('update.current') }}</div>
+                <div class="vv">v{{ appVersion }}</div>
+              </div>
+              <span class="varrow" v-html="ic('arrowRight')"></span>
+              <div class="vcol">
+                <div class="vk">{{ t('update.latest') }}</div>
+                <div class="vv" :class="{ fresh: updateNew }">{{ updateInfo.latest ? 'v' + updateInfo.latest : '—' }}</div>
+              </div>
+            </div>
+
+            <div class="vstatus" :class="updateNew ? 'has' : 'idle'">
+              <span class="vsic" v-html="ic('spark')"></span>
+              <div class="vstext">
+                <b>{{ updateHeadline }}</b>
+                <span>{{ updateDetail }}</span>
+              </div>
+              <div class="spacer"></div>
+              <button class="btn sm" type="button" :disabled="updateChecking || updateInstalling" @click="checkUpdate(true)">
+                <span v-html="ic('refresh')"></span>{{ updateChecking ? t('update.checking') : t('update.check') }}
+              </button>
+              <button class="btn sm primary" type="button" v-if="updateNew"
+                      :disabled="updateInstalling" @click="installUpdate">
+                <span v-html="ic('download')"></span>{{ updateInstalling ? t('update.installing') : t('update.oneClick') }}
+              </button>
+            </div>
+            <div class="hint" style="color:var(--danger);margin-top:10px" v-if="updateError">{{ updateError }}</div>
+
+            <div class="sep"></div>
+            <h3>{{ t('update.notes') }}</h3>
+            <div class="relnotes" v-if="updateInfo.notes">{{ updateInfo.notes }}</div>
+            <div class="faint" v-else>{{ t('update.noNotes') }}</div>
+
+            <div class="kv" style="margin-top:14px">
+              <div class="k">{{ t('update.repo') }}</div>
+              <div class="v mono">{{ updateInfo.repo || '—' }}</div>
+              <div class="k">{{ t('update.checkedAt') }}</div>
+              <div class="v">{{ updateInfo.checked_at ? FMT.fmtDate(updateInfo.checked_at) : t('update.neverChecked') }}</div>
+              <div class="k">{{ t('update.publishedAt') }}</div>
+              <div class="v">{{ updateInfo.published_at ? updateInfo.published_at.slice(0, 10) : '—' }}</div>
+              <div class="k">{{ t('update.autoCheckLabel') }}</div>
+              <div class="v">
+                <label class="switch"><input type="checkbox" v-model="settings.update_check"
+                       @change="saveSettings({ update_check: settings.update_check }, true)"><span></span></label>
+              </div>
+            </div>
+            <div class="hint" style="margin-top:12px">{{ t('update.autoCheck') }}</div>
+          </div>
+        </template>
+
+        <!-- ---- maintenance ---- -->
+        <template v-if="setTab === 'maint'">
+          <div class="card">
+            <div class="card-head"><h3>{{ t('maint.title') }}</h3></div>
+            <p class="dim" style="margin:0 0 14px">{{ t('backup.desc') }}</p>
+            <div class="row wrap" style="gap:8px">
+              <button class="btn" type="button" @click="exportBackup">
+                <span v-html="ic('download')"></span>{{ t('backup.export') }}
+              </button>
+              <button class="btn" type="button" @click="exportToFolder" :disabled="maintBusy">
+                <span v-html="ic('folder')"></span>{{ t('backup.toFolder') }}
+              </button>
+            </div>
+            <div class="hint" style="margin-top:9px">{{ t('backup.exportHint') }}</div>
+            <div class="sep"></div>
+            <div class="field">
+              <label>{{ t('backup.import') }}</label>
+              <div class="filepick">
+                <button class="btn" type="button" @click="$refs.backupInput.click()">
+                  <span v-html="ic('folder')"></span>{{ t('backup.choose') }}
+                </button>
+                <span class="filepick-name" :title="backupFile ? backupFile.name : ''">
+                  {{ backupFile ? backupFile.name : t('file.none') }}
+                </span>
+                <input ref="backupInput" type="file" accept=".json,application/json" @change="onPickBackup">
+              </div>
+              <div class="row" style="margin-top:10px">
+                <button class="btn primary" type="button" :disabled="!backupFile || maintBusy" @click="doImport">{{ t('backup.import') }}</button>
+              </div>
+              <div class="hint">{{ t('backup.importWarning') }}</div>
+            </div>
+          </div>
+
+          <div class="card" style="margin-top:var(--gap)">
+            <div class="card-head"><h3>{{ t('auto.title') }}</h3></div>
+            <p class="dim" style="margin:0 0 14px">{{ t('auto.desc') }}</p>
+            <div class="form-grid">
+              <div class="field full">
+                <label>{{ t('auto.enabled') }}</label>
+                <label class="switch">
+                  <input type="checkbox" v-model="autoForm.auto_backup_enabled">
+                  <span>{{ autoForm.auto_backup_enabled ? t('settings.on') : t('auto.none') }}</span>
+                </label>
+              </div>
+              <div class="field">
+                <label>{{ t('auto.interval') }}</label>
+                <input class="input" type="number" v-model.number="autoForm.auto_backup_interval_hours" min="1" max="8760">
+                <div class="hint">{{ t('auto.intervalHelp') }}</div>
+              </div>
+              <div class="field">
+                <label>{{ t('auto.retention') }}</label>
+                <input class="input" type="number" v-model.number="autoForm.auto_backup_retention_days" min="1" max="3650">
+                <div class="hint">{{ t('auto.retentionHelp') }}</div>
+              </div>
+            </div>
+            <div class="kv" style="margin-top:14px">
+              <div class="k">{{ t('auto.directory') }}</div><div class="v mono">{{ maint.directory || '—' }}</div>
+              <div class="k">{{ t('auto.lastSuccess') }}</div><div class="v">{{ maint.last_success ? FMT.fmtDate(maint.last_success) : t('auto.none') }}</div>
+              <div class="k">{{ t('auto.nextRun') }}</div><div class="v">{{ maint.next_run ? FMT.fmtDate(maint.next_run) : t('auto.none') }}</div>
+              <div class="k">{{ t('auto.lastError') }}</div>
+              <div class="v" :style="{ color: maint.last_error ? 'var(--danger)' : '' }">{{ maint.last_error || t('auto.none') }}</div>
+            </div>
+            <div class="sep"></div>
+            <div class="row wrap" style="gap:8px">
+              <button class="btn primary" type="button" @click="saveAuto" :disabled="maintBusy">{{ t('set.save') }}</button>
+              <button class="btn" type="button" @click="runBackupNow" :disabled="maintBusy">{{ t('auto.runNow') }}</button>
+            </div>
+          </div>
+
+          <div class="card" style="margin-top:var(--gap)">
+            <div class="card-head">
+              <h3>{{ t('backup.listTitle') }}</h3>
+              <div class="spacer"></div>
+              <span class="chip">{{ maint.backups.length }}</span>
+            </div>
+            <div v-if="!maint.backups.length" class="faint">{{ t('backup.empty') }}</div>
+            <div class="bscroll" v-else>
+              <table class="ttable tbackup">
+                <thead>
+                  <tr>
+                    <th>{{ t('backup.createdAt') }}</th>
+                    <th class="num">{{ t('table.size') }}</th>
+                    <th class="col-acts"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="b in maint.backups" :key="b.name">
+                    <td class="bcname">
+                      <div class="mono ellipsis bname" :title="b.name">{{ backupLabel(b.name) }}</div>
+                    </td>
+                    <td class="num mono">{{ FMT.fmtBytes(b.size) }}</td>
+                    <td class="col-acts">
+                      <div class="acts">
+                        <button class="btn sm" @click="askRestore(b)">{{ t('backup.restore') }}</button>
+                        <button class="btn sm danger" @click="askDeleteBackup(b)">{{ t('backup.delete') }}</button>
+                      </div>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </template>
+
+        <!-- ---- appearance ---- -->
+        <template v-if="setTab === 'ui'">
+          <div class="card">
+            <div class="card-head"><h3>{{ t('set.theme') }}</h3></div>
+            <div class="seg">
+              <button v-for="th in themeOptions" :key="th.v" :class="{ on: theme === th.v }" @click="setTheme(th.v)">{{ th.label }}</button>
+            </div>
+            <div class="card-head" style="margin-top:20px"><h3>{{ t('set.lang') }}</h3></div>
+            <div class="seg">
+              <button :class="{ on: lang === 'zh' }" @click="setLang('zh')">中文</button>
+              <button :class="{ on: lang === 'en' }" @click="setLang('en')">English</button>
+            </div>
+          </div>
+        </template>
+      </template>
+
+    </div>
+  </div>
+</div>
+
+<!-- ---------- server form ---------- -->
+<div class="modal-wrap" v-if="serverForm">
+  <div class="modal">
+    <div class="modal-head">{{ serverForm.id ? t('set.editServer') : t('set.addServer') }}</div>
+    <div class="modal-body">
+      <div class="field">
+        <label>{{ t('set.name') }}</label>
+        <input class="input" v-model="serverForm.name" placeholder="Chin">
+      </div>
+      <div class="field">
+        <label>{{ t('set.addr') }}</label>
+        <div style="display:flex;gap:8px">
+          <input class="input" v-model="serverForm.host" placeholder="192.168.1.3">
+          <input class="input" style="max-width:110px" v-model.number="serverForm.port" placeholder="8006">
+        </div>
+        <div class="hint">{{ t('set.addrHint') }}</div>
+      </div>
+      <div class="field">
+        <label>{{ t('set.token') }}</label>
+        <input class="input" type="password" v-model="serverForm.token"
+               :placeholder="serverForm.token_set ? t('set.tokenSaved') : t('set.tokenPlaceholder')">
+        <div class="hint">{{ t('set.tokenHint') }}</div>
+      </div>
+      <div class="field">
+        <label class="switch">
+          <input type="checkbox" v-model="serverForm.verify_tls"><span>{{ t('set.verify') }}</span>
+        </label>
+        <div class="hint">{{ t('set.verifyHint') }}</div>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn" @click="serverForm = null">{{ t('common.cancel') }}</button>
+      <div class="spacer"></div>
+      <button class="btn primary" @click="saveServer" :disabled="saving">{{ saving ? t('set.saving') : t('set.save') }}</button>
+    </div>
+  </div>
+</div>
+
+<!-- ---------- channel form ---------- -->
+<div class="modal-wrap" v-if="channelForm">
+  <div class="modal">
+    <div class="modal-head">{{ channelForm.name || t('set.notifyAdd') }}</div>
+    <div class="modal-body">
+      <div class="field">
+        <label>{{ t('set.channelType') }}</label>
+        <select class="select" v-model="channelForm.type" @change="onChannelType">
+          <option v-for="(meta, key) in channelTypes" :key="key" :value="key">{{ meta.label || key }}</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>{{ t('set.name') }}</label>
+        <input class="input" v-model="channelForm.name">
+      </div>
+      <div class="field" v-for="f in channelFields" :key="f.key">
+        <label>{{ f.label }}</label>
+        <input class="input" v-model="channelForm.config[f.key]" :type="f.secret ? 'password' : 'text'" :placeholder="f.hint">
+        <div class="hint" v-if="f.secret && channelForm.config[f.key] === '__SET__'">{{ t('set.tokenSaved') }}</div>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn" @click="channelForm = null">{{ t('common.cancel') }}</button>
+      <div class="spacer"></div>
+      <button class="btn primary" @click="saveChannel" :disabled="saving">{{ saving ? t('set.saving') : t('set.save') }}</button>
+    </div>
+  </div>
+</div>
+
+<!-- ---------- confirm ---------- -->
+<div class="modal-wrap" v-if="confirmState">
+  <div class="modal" style="max-width:420px">
+    <div class="modal-head">{{ confirmState.title }}</div>
+    <div class="modal-body"><p style="margin:0">{{ confirmState.body }}</p></div>
+    <div class="modal-foot">
+      <button class="btn" @click="confirmState = null">{{ t('common.cancel') }}</button>
+      <div class="spacer"></div>
+      <button class="btn" :class="confirmState.danger ? 'danger' : 'primary'" @click="confirmState.ok">{{ t('common.confirm') }}</button>
+    </div>
+  </div>
+</div>
+
+<!-- ---------- mobile picker ---------- -->
+<div class="mask" v-if="pickerOpen" @click="pickerOpen = null"
+     style="align-items:flex-end;justify-content:center;background:rgba(0,0,0,.45)">
+  <div style="width:100%;max-width:480px;background:var(--bg);border-radius:14px 14px 0 0;padding:10px;
+              padding-bottom:calc(10px + env(safe-area-inset-bottom))">
+    <div class="picker-list">
+      <button class="picker-item" v-for="s in servers" :key="s.id" @click="switchServer(s.id)"
+              style="width:100%;display:flex;align-items:center;gap:10px;padding:12px;border:0;background:none;
+                     border-radius:10px;font-size:15px;text-align:left">
+        <i class="dot" :class="s.id === activeId ? 'on' : ''"></i>{{ s.name || s.host }}
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- ================= one-click update overlay =================
+     The update stops the service, so the page is guaranteed to go dark for a
+     few seconds. This overlay stays until the panel answers again - closing it
+     early would look like a failure. -->
+<div class="upoverlay" v-if="updateInstalling">
+  <div class="upoverlay-box">
+    <span class="upspin" v-html="ic('refresh')"></span>
+    <div class="uptitle">{{ updateInstallVersion ? t('update.installingTitle', { v: updateInstallVersion }) : t('update.installing') }}</div>
+    <div class="upstage">{{ updateInstallDetail || t('update.hint') }}</div>
+    <div class="upprog-block">
+      <template v-if="updateProgressKnown">
+        <div class="upprog"><div class="upprog-fill" :style="{ width: updatePeakPct + '%' }"></div></div>
+        <div class="upprog-meta">
+          <span class="upmeta-size" v-if="updateProgressTotal">
+            {{ FMT.fmtBytes(updateProgressDone) }} / {{ FMT.fmtBytes(updateProgressTotal) }}
+          </span>
+          <span class="upmeta-pct">{{ updatePeakPct }}%</span>
+        </div>
+      </template>
+      <div class="upprog-ready" v-else>{{ t('update.progressUnknown') }}</div>
+    </div>
+    <div class="upkeep">{{ t('update.keepOpen') }}</div>
+  </div>
+</div>
+
+<div class="toasts">
+  <div class="toast" v-for="(tt, i) in toasts" :key="i" :class="tt.tone">{{ tt.msg }}</div>
+</div>
+</div>
+
+<script src="./lib/vue.global.prod.js"></script>
+<script src="./js/i18n.js?v=26.11.4"></script>
+<script src="./js/util.js?v=26.11.4"></script>
+<script src="./js/charts.js?v=26.11.4"></script>
+<script src="./js/api.js?v=26.11.4"></script>
+<script src="./js/app.js?v=26.11.4"></script>
+</body>
+</html>

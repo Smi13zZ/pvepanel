@@ -1,0 +1,17 @@
+{
+  ".url": {
+    "fn-pvepanel.Application": {
+      "noDisplay": false,
+      "allUsers": false,
+      "fileTypes": [],
+      "control": {
+        "accessPerm": "readonly"
+      },
+      "protocol": "http",
+      "title": "PVEpanel",
+      "icon": "images/icon_{0}.png",
+      "type": "iframe",
+      "url": "/cgi/ThirdParty/fn-pvepanel/index.cgi/"
+    }
+  }
+}

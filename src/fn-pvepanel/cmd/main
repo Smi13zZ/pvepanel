@@ -1,0 +1,185 @@
+#!/bin/bash
+### PVE 面板 lifecycle: start / stop / status
+###
+### Notes that cost time to learn the hard way:
+###   * setsid is required, otherwise the child dies when appcenter finishes
+###     calling us and the panel never comes up.
+###   * the poll loop must actually wait for the port. Returning 0 early makes
+###     install_callback announce a desktop entry that cannot be opened yet.
+###   * status must use 0 = running / 3 = stopped; any other code is read by
+###     the app centre as "unknown" and the app shows as neither state.
+set -u
+
+PKG_VAR="${TRIM_PKGVAR:-/tmp/pvepanel-var}"
+APP_HOME="${TRIM_APPDEST:-}"
+PID_FILE="${PKG_VAR}/pvepanel.pid"
+LOG_FILE="${PKG_VAR}/pvepanel.log"
+PORTS_FILE="${PKG_VAR}/runtime-ports.env"
+DEFAULT_PORT=8899
+
+mkdir -p "${PKG_VAR}" 2>/dev/null || true
+
+if [ -n "${wizard_backend_port:-}" ]; then
+    PORT="${wizard_backend_port}"
+elif [ -n "${BACKEND_PORT:-}" ]; then
+    PORT="${BACKEND_PORT}"
+else
+    PORT="${DEFAULT_PORT}"
+fi
+
+SERVER="${APP_HOME}/server/pvepanel.py"
+
+find_python() {
+    local c
+    for c in /usr/bin/python3 /usr/local/bin/python3 /bin/python3; do
+        if [ -x "${c}" ]; then printf '%s\n' "${c}"; return 0; fi
+    done
+    if command -v python3 >/dev/null 2>&1; then command -v python3; return 0; fi
+    return 1
+}
+
+PYTHON="$(find_python || true)"
+
+MANIFEST_FILE="$(dirname "$0")/../manifest"
+APP_VERSION=""
+if [ -r "${MANIFEST_FILE}" ]; then
+    APP_VERSION="$(grep -E '^version' "${MANIFEST_FILE}" | head -1 | cut -d= -f2 | tr -d ' \t\r')"
+fi
+[ -n "${APP_VERSION}" ] || APP_VERSION="26.11.0"
+
+warn() {
+    if [ -n "${TRIM_TEMP_LOGFILE:-}" ]; then
+        printf '%s\n' "$1" > "${TRIM_TEMP_LOGFILE}" 2>/dev/null || true
+    fi
+    printf '%s\n' "$1" >&2
+}
+
+read_pid() {
+    if [ -f "${PID_FILE}" ]; then
+        cat "${PID_FILE}" 2>/dev/null || true
+    fi
+}
+
+is_running() {
+    local pid
+    pid="$(read_pid)"
+    [ -n "${pid}" ] || return 1
+    kill -0 "${pid}" 2>/dev/null
+}
+
+port_ready() {
+    if (exec 3<>"/dev/tcp/127.0.0.1/${PORT}") 2>/dev/null; then
+        exec 3<&- 3>&- 2>/dev/null || true
+        return 0
+    fi
+    return 1
+}
+
+write_runtime_ports() {
+    {
+        printf 'BACKEND_PORT=%s\n' "${PORT}"
+        printf 'ADMIN_TARGET_PORT=%s\n' "${PORT}"
+        printf 'ADMIN_TARGET_HOST=127.0.0.1\n'
+    } > "${PORTS_FILE}" 2>/dev/null || true
+    chmod 600 "${PORTS_FILE}" 2>/dev/null || true
+}
+
+rotate_log() {
+    if [ -f "${LOG_FILE}" ]; then
+        local size
+        size="$(wc -c < "${LOG_FILE}" 2>/dev/null || echo 0)"
+        if [ "${size}" -gt 1048576 ]; then
+            mv -f "${LOG_FILE}" "${LOG_FILE}.1" 2>/dev/null || true
+        fi
+    fi
+}
+
+start() {
+    if is_running; then
+        write_runtime_ports
+        return 0
+    fi
+
+    if [ -z "${APP_HOME}" ]; then
+        warn "TRIM_APPDEST 为空，无法定位 PVE 面板程序目录。"
+        return 1
+    fi
+    if [ ! -f "${SERVER}" ]; then
+        warn "找不到服务文件：${SERVER}"
+        return 1
+    fi
+    if [ -z "${PYTHON}" ]; then
+        warn "未找到 python3。PVE 面板依赖系统自带的 Python 3。"
+        return 1
+    fi
+
+    rotate_log
+    write_runtime_ports
+
+    cd "${APP_HOME}/server" || return 1
+    # The panel listens on loopback on purpose: the desktop entry reaches it
+    # through index.cgi, which is gated by the fnOS login. The raw port is not.
+    TRIM_PKGVAR="${PKG_VAR}" \
+    PVEPANEL_PORT="${PORT}" \
+    PVEPANEL_VERSION="${APP_VERSION}" \
+    PVEPANEL_APP_HOME="${APP_HOME}" \
+    BACKEND_PORT="${PORT}" \
+    PVEPANEL_LISTEN="127.0.0.1" \
+    setsid "${PYTHON}" "${SERVER}" >> "${LOG_FILE}" 2>&1 < /dev/null &
+    echo $! > "${PID_FILE}"
+
+    local i=0
+    while [ "${i}" -lt 40 ]; do
+        if ! is_running; then
+            warn "PVE 面板进程启动后立即退出，请查看 ${LOG_FILE}。"
+            rm -f "${PID_FILE}"
+            return 1
+        fi
+        if port_ready; then
+            return 0
+        fi
+        sleep 0.5
+        i=$((i + 1))
+    done
+
+    warn "PVE 面板在 20 秒内未开始监听端口 ${PORT}。"
+    return 1
+}
+
+stop() {
+    local pid
+    pid="$(read_pid)"
+    if [ -n "${pid}" ] && kill -0 "${pid}" 2>/dev/null; then
+        kill "${pid}" 2>/dev/null || true
+        local i=0
+        while [ "${i}" -lt 30 ] && kill -0 "${pid}" 2>/dev/null; do
+            sleep 0.5
+            i=$((i + 1))
+        done
+        if kill -0 "${pid}" 2>/dev/null; then
+            kill -9 "${pid}" 2>/dev/null || true
+        fi
+    fi
+    rm -f "${PID_FILE}" 2>/dev/null || true
+    return 0
+}
+
+status() {
+    if is_running; then return 0; fi
+    if port_ready; then return 0; fi
+    return 3
+}
+
+rc=0
+case "${1:-}" in
+    start)   start || rc=$? ;;
+    stop)    stop || rc=$? ;;
+    status)  status || rc=$? ;;
+    restart) stop || true; sleep 1; start || rc=$? ;;
+    *)
+        echo "usage: $0 {start|stop|status|restart}"
+        rc=1
+        ;;
+esac
+
+exit "${rc}"

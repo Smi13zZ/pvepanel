@@ -1,0 +1,21 @@
+#!/bin/bash
+
+### Called after uninstall.
+###
+### The settings and the token are deliberately left in place: fnOS keeps
+### @appdata across an uninstall, and inheriting the cluster address on the next
+### install is what users expect. Only the runtime files are removed here.
+
+set -u
+
+MAIN_SCRIPT="$(dirname "$0")/main"
+if [ -x "${MAIN_SCRIPT}" ]; then
+    "${MAIN_SCRIPT}" stop >/dev/null 2>&1 || true
+fi
+
+if [ -n "${TRIM_PKGVAR:-}" ]; then
+    rm -f "${TRIM_PKGVAR}/pvepanel.pid" \
+          "${TRIM_PKGVAR}/runtime-ports.env" 2>/dev/null || true
+fi
+
+exit 0

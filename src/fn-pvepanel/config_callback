@@ -1,0 +1,27 @@
+#!/bin/bash
+
+### Called after environment variables change: restart so the new port applies.
+
+set -u
+
+MAIN_SCRIPT="$(dirname "$0")/main"
+
+if [ ! -x "${MAIN_SCRIPT}" ]; then
+    chmod +x "${MAIN_SCRIPT}" 2>/dev/null || true
+fi
+
+[ -x "${MAIN_SCRIPT}" ] || exit 0
+
+if "${MAIN_SCRIPT}" status >/dev/null 2>&1; then
+    if ! "${MAIN_SCRIPT}" stop; then
+        echo "failed to stop the panel, so the new port did not take effect" > "${TRIM_TEMP_LOGFILE:-/dev/null}" 2>/dev/null || true
+        exit 1
+    fi
+    sleep 1
+    if ! "${MAIN_SCRIPT}" start; then
+        echo "failed to start the panel on the new port; check whether it is already taken" > "${TRIM_TEMP_LOGFILE:-/dev/null}" 2>/dev/null || true
+        exit 1
+    fi
+fi
+
+exit 0
