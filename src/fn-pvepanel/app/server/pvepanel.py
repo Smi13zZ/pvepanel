@@ -88,7 +88,8 @@ def log(msg):
 
 STORE = store_mod.Store(var_dir(), log)
 COLLECT = collector.Collector(STORE, log)
-NOTIFIER = notifier_mod.Notifier(STORE, notify_mod, log) if notifier_mod else None
+NOTIFIER = (notifier_mod.Notifier(STORE, notify_mod, log, var_dir=var_dir())
+            if notifier_mod else None)
 SNAP_LOCK = threading.Lock()
 
 
@@ -219,6 +220,27 @@ class Handler(BaseHTTPRequestHandler):
     def do_HEAD(self):
         self.do_GET()
 
+    def do_DELETE(self):
+        """Only the delivery log is deletable; everything else is POST.
+
+        Kept as a real DELETE so the front-end reads as "clear this resource"
+        rather than "send an empty POST that happens to clear something".
+        """
+        parsed = urlparse(self.path)
+        path = parsed.path
+        self._raw_cache = None
+        try:
+            self._read_raw()
+            if path == "/api/notify/log":
+                return self._json(self._notify_log_clear())
+            return self._json({"ok": False, "error": "not found"}, 404)
+        except Exception:
+            log("DELETE %s failed:\n%s" % (path, traceback.format_exc()))
+            try:
+                self._json({"ok": False, "error": "internal error"}, 500)
+            except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError, OSError):
+                pass
+
     def do_GET(self):
         parsed = urlparse(self.path)
         path = parsed.path
@@ -338,6 +360,13 @@ class Handler(BaseHTTPRequestHandler):
                                "servers": STORE.public_servers()})
         if path == "/api/notify":
             return self._json({"ok": True, "notify": self._notify_meta()})
+        if path == "/api/notify/log":
+            limit = 0
+            try:
+                limit = int((query.get("limit") or ["0"])[0])
+            except (TypeError, ValueError):
+                limit = 0
+            return self._json(self._notify_log(limit))
         if path == "/api/diagnose":
             sid = (query.get("server") or [None])[0]
             return self._json({"ok": True, "result": self._diagnose(sid)})
@@ -412,6 +441,40 @@ class Handler(BaseHTTPRequestHandler):
         STORE.update_raw("notify_channels", channels)
         return {"ok": True, "notify": self._notify_meta()}
 
+    # ---------------- delivery records ----------------
+
+    def _notify_log(self, limit=0):
+        """Recent push attempts, newest first.
+
+        Returns {ok, records, total, max}: total is how many are stored, records
+        is the (optionally limited) page the browser asked for.
+        """
+        empty = {"ok": True, "records": [], "total": 0, "max": 0}
+        if notifier_mod is None:
+            empty["error"] = "通知模块不可用"
+            return empty
+        try:
+            recs = notifier_mod.load_notify_log(var_dir())
+        except Exception as e:
+            log("notify log read failed: %r" % (e,))
+            empty["error"] = str(e)
+            return empty
+        total = len(recs)
+        if limit and limit > 0:
+            recs = recs[:limit]
+        return {"ok": True, "records": recs, "total": total,
+                "max": notifier_mod.NOTIFY_LOG_MAX}
+
+    def _notify_log_clear(self):
+        if notifier_mod is None:
+            return {"ok": False, "error": "通知模块不可用"}
+        try:
+            ok = notifier_mod.clear_notify_log(var_dir())
+        except Exception as e:
+            log("notify log clear failed: %r" % (e,))
+            return {"ok": False, "error": str(e)}
+        return {"ok": bool(ok), "removed": True}
+
     def _notify_test(self, body):
         """Send the canned test message through one channel.
 
@@ -434,6 +497,14 @@ class Handler(BaseHTTPRequestHandler):
             chosen = body
         title, text = notify_mod.format_test(chosen.get("name") or "", lang)
         ok, detail = notify_mod.send(chosen, title, text)
+        # A test is a delivery like any other: it belongs in the same history, or
+        # "the test worked but the alert never arrived" stays unexplainable.
+        if notifier_mod is not None:
+            try:
+                notifier_mod.record_delivery(var_dir(), chosen, title, text,
+                                             "test", bool(ok), detail)
+            except Exception as e:  # noqa: BLE001
+                log("test delivery record failed: %r" % (e,))
         return {"ok": bool(ok), "detail": detail}
     def _update_cached(self):
         """The last update answer, WITHOUT ever hitting the network.

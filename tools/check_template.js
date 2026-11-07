@@ -96,6 +96,9 @@ function main() {
     ["storage loads when settings opens", /this\.setTab === "storage"\) this\.loadStorage\(\)/],
     ["cleanup goes through the API", /API\.storageCleanup\(/],
     ["storage tab is deep-linkable", /"servers", "notify", "maint", "storage", "update", "ui"/],
+    ["notify log loads on tab", /if \(id === "notify"\) this\.loadNotifyLog\(\)/],
+    ["notify log reloads after a test", /[\s\S]*this\.testing = null;[\s\S]{0,200}loadNotifyLog\(\)/],
+    ["notify filter re-measures", /notifyLogFilter\(\) \{ this\.\$nextTick\(this\.measureNotifyLog\)/],
   ];
   let jsOk = true;
   jsProbes.forEach(function (p) {
@@ -113,6 +116,11 @@ function main() {
     ["in-use chip", /storage\.inUse/],
     ["refresh handler", /loadStorage/],
     ["maintenance page untouched", /setTab === 'maint'/],
+    ["notify log card", /notifyLog\.title/],
+    ["notify log rows", /nlogrow/],
+    ["notify log filters", /notifyLogFilter === 'fail'/],
+    ["notify log clear", /askClearNotifyLog/],
+    ["notify log event label", /notifyEventLabel\(r\.event\)/],
   ];
   probes.forEach(function (p) {
     if (p[1].test(tpl)) {

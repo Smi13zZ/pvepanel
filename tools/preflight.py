@@ -72,14 +72,18 @@ else:
         FAILS.append("front-end syntax")
 
 for name in ("test_bootstrap", "test_maint", "test_upgrade_installer",
-             "test_notify", "test_storage", "test_update"):
+             "test_notify", "test_notify_log", "test_storage", "test_update"):
     step(name, [sys.executable, os.path.join(ROOT, "tools", name + ".py")])
 
-# The storage page is the only part of the front-end with a template check: an
-# unbalanced tag there reparents the rest of the settings page in the browser,
-# and nothing else in the gate chain would notice.
+# Template tags: an unbalanced one reparents the rest of the settings page in
+# the browser, which only shows up as a half-missing page on a device.
 if node:
     step("template check", [node, os.path.join(ROOT, "tools", "check_template.js")])
+
+# The delivery-record endpoints are exercised against a real HTTP service: the
+# unit test covers the storage rules, this covers the routes wiring them up.
+step("notify log api", [sys.executable,
+                        os.path.join(ROOT, "tools", "check_notify_log_api.py")])
 
 print("")
 if FAILS:

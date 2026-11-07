@@ -766,6 +766,66 @@ def unit_format(rep):
     t, b = notify.format_test("运维群")
     rep.check("测试标题", t.startswith("[PVEpanel]"), t)
     rep.check("测试正文点名渠道", "运维群" in b, b)
+    # One message carries both languages: a push goes to a phone, and the
+    # panel's language setting belongs to a browser - they are different people.
+    rep.eq("测试标题中英合一", t, "[PVEpanel] 通知测试 / Notification test")
+    rep.check("测试正文含英文行", "channel is configured correctly" in b, b)
+    rep.check("测试正文中英之间留空行", "\n\n" in b, repr(b[:120]))
+    t_en, b_en = notify.format_test("ops", lang="en")
+    rep.check("英文面板下英文在前", b_en.split("\n\n")[0].startswith("If you can read this"), b_en[:80])
+    rep.check("英文面板下中文仍在", "渠道配置正确" in b_en, b_en)
+
+
+def unit_notifier_bilingual(rep):
+    """The alert pushes carry both languages too, not just the test message."""
+    rep.section("notifier 推送双语")
+    import notifier
+
+    class _Store(object):
+        var_dir = ""
+
+        def __init__(self, settings):
+            self._s = settings
+
+        def settings(self):
+            return self._s
+
+    class _Notify(object):
+        def __init__(self):
+            self.sent = []
+
+        def send(self, ch, title, body):
+            self.sent.append((ch, title, body))
+            return True, "ok"
+
+    settings = {"notify_enabled": True, "lang": "zh",
+                "notify_channels": [{"id": "a", "type": "webhook", "name": "hook",
+                                     "url": "http://127.0.0.1:1/x", "enabled": True}],
+                "notify_events": {"node_offline": True, "storage_full": True,
+                                  "auth_failed": True}}
+    mock = _Notify()
+    nt = notifier.Notifier(_Store(settings), mock, lambda *_a: None)
+    nt.observe({"server": {"name": "pve1"},
+                "meta": {},
+                "alerts": [{"title": "节点离线", "detail": "节点: pve1"}]},
+               "pve1")
+    rep.check("离线告警推送了一条", len(mock.sent) == 1, mock.sent)
+    if mock.sent:
+        _ch, title, body = mock.sent[0]
+        rep.eq("告警标题中英合一", title, "[PVEpanel] 节点离线 / Node offline")
+        rep.check("告警正文含英文行", "\n\n" in body, repr(body[:120]))
+
+    mock.sent.clear()
+    nt2 = notifier.Notifier(_Store(settings), mock, lambda *_a: None)
+    nt2.observe({"server": {"name": "pve1"},
+                 "meta": {"auth_failed": True},
+                 "alerts": []}, "pve1")
+    rep.check("Token 失效也推送了", len(mock.sent) == 1, mock.sent)
+    if mock.sent:
+        _ch, title, body = mock.sent[0]
+        rep.eq("Token 失效标题中英合一", title,
+               "[PVEpanel] Token 失效 / Token invalid")
+        rep.check("Token 失效正文含英文行", "polling has stopped" in body, body)
 
 
 def main():
@@ -796,6 +856,7 @@ def main():
         unit_dingtalk_sign(rep)
         unit_meta(rep)
         unit_format(rep)
+        unit_notifier_bilingual(rep)
     finally:
         restore_endpoints(saved)
         sink.stop()

@@ -670,6 +670,53 @@
               {{ saving ? t('set.saving') : t('set.save') }}
             </button>
           </div>
+
+          <!-- delivery records: one row per push attempt -->
+          <div class="card" style="margin-top:var(--gap)">
+            <div class="card-head nlog-head">
+              <h3>{{ t('notifyLog.title') }}</h3>
+              <div class="spacer"></div>
+              <div class="seg nlog-seg">
+                <button type="button" :class="{ on: notifyLogFilter === 'all' }"
+                        @click="notifyLogFilter = 'all'">{{ t('notifyLog.filter.all') }}</button>
+                <button type="button" :class="{ on: notifyLogFilter === 'ok' }"
+                        @click="notifyLogFilter = 'ok'">{{ t('notifyLog.filter.ok') }}</button>
+                <button type="button" :class="{ on: notifyLogFilter === 'fail' }"
+                        @click="notifyLogFilter = 'fail'">{{ t('notifyLog.filter.fail') }}<span
+                        class="nlogbadge" v-if="notifyLogFailed">{{ notifyLogFailed }}</span></button>
+              </div>
+              <button class="btn sm" type="button" :disabled="notifyLogLoading" @click="loadNotifyLog()">
+                {{ t('notifyLog.refresh') }}
+              </button>
+              <button class="btn sm danger" type="button" :disabled="clearingNotifyLog || !notifyLog.length"
+                      @click="askClearNotifyLog()">{{ t('notifyLog.clear') }}</button>
+            </div>
+            <p class="dim" style="margin:0 0 12px">{{ t('notifyLog.desc', { n: notifyLogMax }) }}</p>
+            <div class="empty" v-if="!notifyLogShown.length">
+              {{ notifyLogLoading ? t('notifyLog.loading')
+                : (notifyLog.length ? t('notifyLog.noneMatch') : t('notifyLog.empty')) }}
+            </div>
+            <div class="nlog" v-else ref="notifyLogList"
+                 :style="notifyLogHeight ? { maxHeight: notifyLogHeight + 'px' } : null">
+              <div class="nlogrow" v-for="r in notifyLogShown" :key="r.id">
+                <span class="nlogstate" :class="r.ok ? 'ok' : 'err'">{{ r.ok ? t('notifyLog.ok') : t('notifyLog.fail') }}</span>
+                <div class="nlogin">
+                  <div class="nlogtop">
+                    <span class="nlogtitle ellipsis">{{ r.title }}</span>
+                    <span class="nlogtag">{{ notifyEventLabel(r.event) }}</span>
+                  </div>
+                  <div class="nlogbody">{{ r.body }}</div>
+                  <div class="nlogmeta">
+                    <span class="ellipsis">{{ r.channel }}</span>
+                    <span class="sep">·</span>
+                    <span>{{ FMT.fmtDate(r.at) }}</span>
+                  </div>
+                  <div class="nlogerr" v-if="!r.ok && r.detail">{{ r.detail }}</div>
+                </div>
+              </div>
+            </div>
+            <div class="hint" style="margin-top:12px">{{ t('notifyLog.hint') }}</div>
+          </div>
         </template>
 
         <!-- ---- update ---- -->

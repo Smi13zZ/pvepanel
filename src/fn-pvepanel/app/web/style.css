@@ -701,6 +701,57 @@ canvas { display: block; width: 100%; height: 100%; }
 .ttable.tbackup td.col-acts { text-align: left; }
 
 /* ================================================================
+ * Delivery records (settings → 通知)
+ * ================================================================ */
+.nlog-head { flex-wrap: wrap; }
+.nlogbadge {
+  margin-left: 5px; font-size: 10.5px; font-weight: 600; line-height: 15px;
+  padding: 0 5px; border-radius: 999px;
+  background: var(--danger-soft); color: var(--danger);
+}
+.nlog-seg { flex: 0 0 auto; }
+/* The height is measured in JS from the first few rows and written inline; the
+   max-height here is the fallback for the moment before that measurement and
+   the thing that takes over scrolling. */
+.nlog {
+  display: flex; flex-direction: column; gap: 8px;
+  max-height: 420px; overflow-y: auto; overscroll-behavior: contain;
+}
+.nlogrow {
+  display: flex; align-items: flex-start; gap: 10px;
+  padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius);
+}
+.nlogstate {
+  flex: 0 0 auto; font-size: 11px; font-weight: 600; line-height: 18px;
+  padding: 0 8px; border-radius: 999px; white-space: nowrap;
+  background: var(--muted); color: var(--dim);
+}
+.nlogstate.ok { background: rgba(22, 163, 74, .12); color: var(--ok); }
+.nlogstate.err { background: var(--danger-soft); color: var(--danger); }
+.nlogin { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 3px; }
+.nlogtop { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.nlogtitle { font-size: 13.5px; font-weight: 600; min-width: 0; }
+.nlogtag {
+  flex: 0 0 auto; font-size: 11px; color: var(--dim);
+  background: var(--muted); border-radius: 999px; padding: 0 7px; line-height: 17px;
+}
+/* The body is the point of the record, but three lines is enough to recognise a
+   message; the title and event tag above it carry the rest. */
+.nlogbody {
+  font-size: 12.5px; color: var(--dim); white-space: pre-wrap; word-break: break-word;
+  display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;
+}
+.nlogmeta {
+  font-size: 11.5px; color: var(--faint); display: flex; align-items: center;
+  gap: 6px; min-width: 0;
+}
+.nlogmeta .sep { opacity: .6; }
+.nlogerr {
+  font-size: 11.5px; color: var(--danger); font-family: var(--mono);
+  word-break: break-word; margin-top: 2px;
+}
+
+/* ================================================================
  * Storage (settings → 存储)
  * ================================================================ */
 /* The usage table is short (five rows) so it does not need the fixed 300px
@@ -986,6 +1037,19 @@ canvas { display: block; width: 100%; height: 100%; }
     direction: rtl; text-align: left;
   }
   .bscroll.storage-scroll .btn.sm { padding: 0 8px; font-size: 12px; }
+
+  /* Delivery records on a phone: the state pill and the text already sit side
+     by side, but the filter segment plus two buttons do not fit one row - let
+     the header wrap and give the segment the full width so the buttons keep
+     their labels instead of being squeezed. */
+  .nlog-head { gap: 8px; }
+  .nlog-head h3 { flex: 1 1 auto; }
+  .nlog-seg { order: 3; flex: 1 1 100%; }
+  .nlog-seg button { flex: 1 1 0; }
+  .nlog { max-height: 340px; }
+  .nlogrow { padding: 9px 10px; gap: 8px; }
+  .nlogstate { font-size: 10.5px; line-height: 17px; padding: 0 7px; }
+  .nlogtitle { font-size: 13px; }
 }
 
 /* ---------------- guest row actions ---------------- */

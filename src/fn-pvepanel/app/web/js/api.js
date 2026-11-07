@@ -76,6 +76,15 @@
     testServer: function (payload) { return post("./api/server/test", payload); },
     guestAction: function (payload) { return post("./api/guest/action", payload); },
     notify: function () { return req("./api/notify"); },
+    notifyLog: function (limit) {
+      return req("./api/notify/log" + (limit ? "?limit=" + limit : ""));
+    },
+    clearNotifyLog: function () {
+      return req("./api/notify/log", { method: "DELETE" }).then(function (doc) {
+        if (!doc.ok) throw new Error(doc.error || "清空失败");
+        return doc;
+      });
+    },
     saveChannel: function (ch) { return post("./api/notify/channel", ch); },
     deleteChannel: function (id) { return post("./api/notify/channel", { id: id, _delete: true }); },
     testChannel: function (ch) { return post("./api/notify/test", ch); },

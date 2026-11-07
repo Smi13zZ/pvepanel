@@ -96,6 +96,7 @@ jobs:
           python3 tools/test_maint.py
           python3 tools/test_upgrade_installer.py
           python3 tools/test_notify.py
+          python3 tools/test_notify_log.py
           python3 tools/test_storage.py
           python3 tools/test_update.py
 

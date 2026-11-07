@@ -64,6 +64,11 @@
      grow to a screenful; tasks beyond this are reachable through the pager. */
   const TASKS_PER_PAGE = 10;
 
+  /* Delivery records: how many rows the card shows before it scrolls, and the
+     gap between them (must match the CSS .nlog gap). */
+  const NOTIFY_LOG_ROWS = 5;
+  const NOTIFY_LOG_GAP = 8;
+
   const app = createApp({
     data() {
       return {
@@ -109,6 +114,17 @@
         autoForm: { auto_backup_enabled: false, auto_backup_interval_hours: 24, auto_backup_retention_days: 7 },
         maintBusy: false,
         backupFile: null,
+
+        // ---- delivery records ----
+        // One row per push attempt. Kept next to the channels so a webhook that
+        // silently rejects every message is visible instead of guesswork.
+        notifyLog: [],
+        notifyLogTotal: 0,
+        notifyLogMax: 200,
+        notifyLogLoading: false,
+        notifyLogFilter: "all",
+        clearingNotifyLog: false,
+        notifyLogHeight: 0,
 
         // ---- storage ----
         // items/total/updates come straight from the API; the page never computes
@@ -342,6 +358,15 @@
         ];
       },
       channels() { return (this.notify && this.notify.channels) || []; },
+      notifyLogShown() {
+        const f = this.notifyLogFilter;
+        if (f === "ok") return this.notifyLog.filter(function (r) { return r.ok; });
+        if (f === "fail") return this.notifyLog.filter(function (r) { return !r.ok; });
+        return this.notifyLog;
+      },
+      notifyLogFailed() {
+        return this.notifyLog.filter(function (r) { return !r.ok; }).length;
+      },
       channelTypes() { return (this.notify && this.notify.types) || {}; },
       channelFields() {
         const form = this.channelForm;
@@ -463,6 +488,7 @@
           this.checkUpdate(false);
           if (this.setTab === "maint") this.loadMaint();
           if (this.setTab === "storage") this.loadStorage();
+          if (this.setTab === "notify") this.loadNotifyLog();
         }
         if (id === "dash") this.$nextTick(this.drawNodeChart);
         if (id === "storage") this.$nextTick(this.drawRings);
@@ -847,6 +873,8 @@
           this.toast(String(e.message || e), "err");
         } finally {
           this.testing = null;
+          // The test is a delivery like any other, so it just became a new row.
+          this.loadNotifyLog();
         }
       },
 
@@ -1171,6 +1199,71 @@
         }
       },
 
+      // ---- delivery records ----
+
+      async loadNotifyLog() {
+        if (this.notifyLogLoading) return;
+        this.notifyLogLoading = true;
+        try {
+          const r = await API.notifyLog(120);
+          this.notifyLog = (r && r.records) || [];
+          this.notifyLogTotal = r && r.total !== undefined ? r.total : this.notifyLog.length;
+          if (r && r.max) this.notifyLogMax = r.max;
+        } catch (e) {
+          // keep whatever is already on screen: a failed refresh must not wipe
+          // the history the operator is reading
+        } finally {
+          this.notifyLogLoading = false;
+          this.$nextTick(this.measureNotifyLog);
+        }
+      },
+
+      /* Lock the list to the height of its first few rows so a long history
+         scrolls inside the card instead of pushing the section down the page. */
+      measureNotifyLog() {
+        const box = this.$refs.notifyLogList;
+        if (!box) return;
+        const rows = Array.prototype.slice.call(box.children, 0, NOTIFY_LOG_ROWS);
+        if (!rows.length) {
+          this.notifyLogHeight = 0;
+          return;
+        }
+        let h = 0;
+        rows.forEach(function (row) { h += row.getBoundingClientRect().height; });
+        h += NOTIFY_LOG_GAP * (rows.length - 1);
+        this.notifyLogHeight = Math.ceil(h);
+      },
+
+      notifyEventLabel(event) {
+        const key = "notifyLog.event." + (event || "manual");
+        const table = window.I18N.STRINGS[this.lang] || {};
+        return table[key] !== undefined ? t(key) : (event || "");
+      },
+
+      askClearNotifyLog() {
+        if (!this.notifyLog.length) return;
+        const self = this;
+        this.confirmState = {
+          title: t("notifyLog.clear"),
+          body: t("notifyLog.clearConfirm"),
+          danger: true,
+          ok: async () => {
+            self.confirmState = null;
+            self.clearingNotifyLog = true;
+            try {
+              await API.clearNotifyLog();
+              self.notifyLog = [];
+              self.notifyLogTotal = 0;
+              self.toast(t("notifyLog.cleared"));
+            } catch (e) {
+              self.toast(String(e.message || e), "err");
+            } finally {
+              self.clearingNotifyLog = false;
+            }
+          },
+        };
+      },
+
       // ---- canvas ----
 
       drawNodeChart() {
@@ -1202,8 +1295,11 @@
       setTab(id) {
         if (id === "maint") this.loadMaint();
         if (id === "storage") this.loadStorage();
+        if (id === "notify") this.loadNotifyLog();
         if (id === "update") this.checkUpdate(false);
       },
+      notifyLogFilter() { this.$nextTick(this.measureNotifyLog); },
+      lang() { this.$nextTick(this.measureNotifyLog); },
       updateProgressPct(v) {
         if (v > this.updatePeakPct) this.updatePeakPct = v;
       },
@@ -1248,6 +1344,7 @@
         this.loadLog();
         if (this.setTab === "maint") this.loadMaint();
         if (this.setTab === "storage") this.loadStorage();
+        if (this.setTab === "notify") this.loadNotifyLog();
       }
 
       if (window.matchMedia) {

@@ -502,22 +502,31 @@ def format_alert(event, node="", fields=None, ts=None, lang="zh"):
 
 
 def format_test(name="", lang="zh"):
-    """The canned message a test delivery carries."""
-    name = str(name or "").strip() or ("this" if _is_en(lang) else "这个")
-    title = "%s %s" % (TITLE_PREFIX, "Notification test" if _is_en(lang) else "通知测试")
-    if _is_en(lang):
-        body = "\n".join([
-            "If you can read this, the '%s' channel is configured correctly." % name,
-            "Node offline, storage, disk temperature and backup events arrive here.",
-            "Time: %s" % time.strftime("%Y-%m-%d %H:%M:%S"),
-        ])
-    else:
-        body = "\n".join([
-            "收到这条消息说明「%s」渠道配置正确。" % name,
-            "节点离线、存储告警、磁盘温度、备份失败等事件会推送到这里。",
-            "时间：%s" % time.strftime("%Y-%m-%d %H:%M:%S"),
-        ])
-    return title, body
+    """The canned message a test delivery carries.
+
+    Bilingual in one message: the panel's language setting belongs to a browser,
+    the phone receiving the push belongs to a person, and those are not always
+    the same choice. lang is still accepted so callers do not have to change,
+    but it no longer picks a side - it only decides which half leads.
+    """
+    label_cn = str(name or "").strip() or "这个"
+    label_en = str(name or "").strip() or "this"
+    title = "%s 通知测试 / Notification test" % TITLE_PREFIX
+    now = time.strftime("%Y-%m-%d %H:%M:%S")
+    cn = [
+        "收到这条消息说明「%s」渠道配置正确。" % label_cn,
+        "节点离线、存储告警、磁盘温度、备份失败等事件会推送到这里。",
+        "时间：%s" % now,
+    ]
+    en = [
+        "If you can read this, the '%s' channel is configured correctly." % label_en,
+        "Node offline, storage, disk temperature and backup events arrive here.",
+        "Time: %s" % now,
+    ]
+    # Keep the reading order matching the UI language, so the half that person
+    # actually reads comes first.
+    first, second = (en, cn) if _is_en(lang) else (cn, en)
+    return title, "\n".join(first) + "\n\n" + "\n".join(second)
 
 
 # --------------------------------------------------------------------------
