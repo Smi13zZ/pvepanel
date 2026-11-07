@@ -3,6 +3,7 @@ __pycache__/
 *.pyo
 tmp/
 image/
+.learnings/
 output/*.fpk
 output/_packed_icon_check/
 *_src.tar
