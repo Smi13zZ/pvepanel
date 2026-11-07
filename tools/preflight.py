@@ -72,8 +72,14 @@ else:
         FAILS.append("front-end syntax")
 
 for name in ("test_bootstrap", "test_maint", "test_upgrade_installer",
-             "test_notify", "test_update"):
+             "test_notify", "test_storage", "test_update"):
     step(name, [sys.executable, os.path.join(ROOT, "tools", name + ".py")])
+
+# The storage page is the only part of the front-end with a template check: an
+# unbalanced tag there reparents the rest of the settings page in the browser,
+# and nothing else in the gate chain would notice.
+if node:
+    step("template check", [node, os.path.join(ROOT, "tools", "check_template.js")])
 
 print("")
 if FAILS:

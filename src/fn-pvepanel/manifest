@@ -1,5 +1,5 @@
 appname               = fn-pvepanel
-version               = 26.11.17
+version               = 26.11.18
 display_name          = PVEpanel
 desc                  = PVEpanel 是运行在飞牛 fnOS 上的 Proxmox VE 监控面板。通过本机服务代理一个或多个集群的 API，把节点、虚拟机与容器、存储、磁盘、任务与告警汇总成可读的状态视图，支持历史曲线、虚拟机启停与短信式通知推送。集群地址与 API Token 只保存在设备本地，浏览器无需也无法直连集群。
 platform              = all

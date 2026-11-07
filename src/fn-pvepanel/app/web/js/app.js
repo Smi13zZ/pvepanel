@@ -109,6 +109,14 @@
         autoForm: { auto_backup_enabled: false, auto_backup_interval_hours: 24, auto_backup_retention_days: 7 },
         maintBusy: false,
         backupFile: null,
+
+        // ---- storage ----
+        // items/total/updates come straight from the API; the page never computes
+        // disk usage itself, it only decides how to label what it was handed.
+        storage: { ok: true, items: [], total: 0, var_dir: "", updates: [],
+                   updates_keep: 2, current_version: "" },
+        storageLoading: false,
+        storageBusy: "",
       };
     },
 
@@ -132,6 +140,7 @@
           { id: "servers", label: t("set.servers") },
           { id: "notify", label: t("set.notify") },
           { id: "maint", label: t("maint.title") },
+          { id: "storage", label: t("storage.tab") },
           { id: "update", label: t("update.title") },
           { id: "ui", label: t("set.theme") },
         ];
@@ -204,6 +213,40 @@
         const total = Number(this.updateProgressTotal) || 0;
         if (!total) return 0;
         return Math.min(100, Math.round((Number(this.updateProgressDone) || 0) / total * 100));
+      },
+      /* Labels come from i18n, not from the API: the server sends a key plus a
+         Chinese fallback, so an English UI stays English. A key with no
+         translation yet falls back to whatever the server called it. */
+      storageItems() {
+        const self = this;
+        return ((this.storage && this.storage.items) || []).map(function (it) {
+          const key = "storage.item." + it.key;
+          const translated = window.I18N.STRINGS[self.lang] || {};
+          return Object.assign({}, it, {
+            label: translated[key] !== undefined ? t(key) : (it.label || it.key),
+          });
+        });
+      },
+      storageUpdates() { return (this.storage && this.storage.updates) || []; },
+      /* How much a given cleanup would actually free. The running version's
+         package is protected by the server, so counting it here would promise
+         space that never comes back. */
+      storageReclaim() {
+        const self = this;
+        const byKey = {};
+        const items = (self.storage && self.storage.items) || [];
+        items.forEach(function (it) { byKey[it.key] = Number(it.bytes) || 0; });
+        let updates = byKey.updates || 0;
+        const cur = (self.storage && self.storage.current_version) || "";
+        if (cur) {
+          ((self.storage && self.storage.updates) || []).forEach(function (u) {
+            if (u && !u.partial && String(u.name || "").indexOf(cur) >= 0) {
+              updates = Math.max(0, updates - (Number(u.bytes) || 0));
+            }
+          });
+        }
+        const logs = (byKey.panel_log || 0) + (byKey.panel_log1 || 0) + (byKey.update_log || 0);
+        return { updates: updates, logs: logs, all: updates + logs };
       },
       guests() { return (this.snapshot && this.snapshot.guests) || []; },
       guestCount() { return this.guests.filter(function (g) { return !g.template; }).length; },
@@ -419,6 +462,7 @@
           this.loadLog();
           this.checkUpdate(false);
           if (this.setTab === "maint") this.loadMaint();
+          if (this.setTab === "storage") this.loadStorage();
         }
         if (id === "dash") this.$nextTick(this.drawNodeChart);
         if (id === "storage") this.$nextTick(this.drawRings);
@@ -1066,6 +1110,67 @@
         };
       },
 
+      // ---- storage ----
+
+      async loadStorage() {
+        this.storageLoading = true;
+        try {
+          const r = await API.storage();
+          this.storage = Object.assign(this.storage, r || {});
+          if (!Array.isArray(this.storage.items)) this.storage.items = [];
+          if (!Array.isArray(this.storage.updates)) this.storage.updates = [];
+        } catch (e) {
+          this.toast(String(e.message || e), "err");
+        } finally {
+          this.storageLoading = false;
+        }
+      },
+
+      /* Confirm before deleting anything, and say how much it would free.
+         target = updates (cached packages) / logs / all. */
+      askCleanup(target) {
+        const self = this;
+        const titles = {
+          updates: "storage.cleanUpdates",
+          logs: "storage.cleanLogs",
+          all: "storage.cleanAll",
+        };
+        const bodies = {
+          updates: "storage.cleanUpdatesText",
+          logs: "storage.cleanLogsText",
+          all: "storage.cleanAllText",
+        };
+        const freed = (this.storageReclaim[target] || 0);
+        this.confirmState = {
+          title: t(titles[target] || titles.all),
+          body: t(bodies[target] || bodies.all, { v: window.FMT.fmtBytes(freed) }),
+          danger: target === "all",
+          ok: async () => {
+            self.confirmState = null;
+            await self.runCleanup(target);
+          },
+        };
+      },
+
+      async runCleanup(target) {
+        if (this.storageBusy) return;
+        this.storageBusy = target;
+        try {
+          const keep = Number(this.storage && this.storage.updates_keep) || 2;
+          const r = await API.storageCleanup(target, keep);
+          this.toast(t("storage.cleaned", { v: window.FMT.fmtBytes((r && r.freed) || 0) }));
+          await this.loadStorage();
+          // the log page caches what it fetched; those files just changed
+          this.logLines = [];
+          this.loadLog();
+        } catch (e) {
+          // 409 means a download is running: that is a state, not a failure
+          this.toast(t("storage.cleanFailed", { msg: String(e.message || e) }), "err");
+        } finally {
+          this.storageBusy = "";
+        }
+      },
+
       // ---- canvas ----
 
       drawNodeChart() {
@@ -1096,6 +1201,7 @@
     watch: {
       setTab(id) {
         if (id === "maint") this.loadMaint();
+        if (id === "storage") this.loadStorage();
         if (id === "update") this.checkUpdate(false);
       },
       updateProgressPct(v) {
@@ -1121,7 +1227,7 @@
         const v = q.get("view");
         if (v && this.navItems.some(function (n) { return n.id === v; })) this.view = v;
         const tab = q.get("tab");
-        if (tab && ["servers", "notify", "maint", "update", "ui"].indexOf(tab) >= 0) {
+        if (tab && ["servers", "notify", "maint", "storage", "update", "ui"].indexOf(tab) >= 0) {
           this.view = "settings";
           this.setTab = tab;
         }
@@ -1141,6 +1247,7 @@
       if (this.view === "settings") {
         this.loadLog();
         if (this.setTab === "maint") this.loadMaint();
+        if (this.setTab === "storage") this.loadStorage();
       }
 
       if (window.matchMedia) {

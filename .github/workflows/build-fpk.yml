@@ -84,6 +84,10 @@ jobs:
             node --check "$f"
             echo "  ok  $f"
           done
+          # Tags in the in-DOM template: an unbalanced one makes the browser
+          # reparent the rest of the settings page, which only shows up as a
+          # half-missing page on a device.
+          node tools/check_template.js
 
       - name: Unit tests
         run: |
@@ -92,6 +96,7 @@ jobs:
           python3 tools/test_maint.py
           python3 tools/test_upgrade_installer.py
           python3 tools/test_notify.py
+          python3 tools/test_storage.py
           python3 tools/test_update.py
 
       - name: Install fnpack

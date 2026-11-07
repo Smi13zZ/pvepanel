@@ -701,6 +701,51 @@ canvas { display: block; width: 100%; height: 100%; }
 .ttable.tbackup td.col-acts { text-align: left; }
 
 /* ================================================================
+ * Storage (settings → 存储)
+ * ================================================================ */
+/* The usage table is short (five rows) so it does not need the fixed 300px
+   scroll box the backup list uses - that would cut the last row in half. It
+   only becomes scrollable on short viewports, where the card would otherwise
+   push the buttons off screen. */
+.bscroll.storage-scroll { max-height: none; overflow-y: visible; }
+@media (max-height: 900px) {
+  .bscroll.storage-scroll { max-height: 330px; overflow-y: auto; }
+}
+.ttable.tstorage { table-layout: fixed; min-width: 0; }
+.ttable.tstorage thead th {
+  position: sticky; top: 0; z-index: 1;
+  height: 36px; padding-top: 0; padding-bottom: 0;
+  background: var(--card); border-bottom: 1px solid var(--border);
+}
+.ttable.tstorage tbody td { height: 46px; padding-top: 0; padding-bottom: 0; }
+/* min-width:0 lets the path ellipsis actually work inside a table cell: the
+   default min-content floor measures the longest unbreakable token, and a long
+   path has no break opportunity at all. */
+.ttable.tstorage .sname { min-width: 0; }
+.ttable.tstorage .sname .sub { font-size: 11px; margin-top: 2px; color: var(--faint); }
+.ttable.tstorage .acts-col { text-align: left; }
+/* English labels are wider than the Chinese ones, so an auto-width action
+   column can clip its own button. 168px fits "Clean old packages" at this
+   font size; the column is hidden below 1140px anyway. */
+.ttable.tstorage th:nth-child(4), .ttable.tstorage td:nth-child(4) { width: 168px; }
+.ttable.tstorage td .btn.sm { white-space: nowrap; }
+.ttable.tstorage .chip { height: 20px; padding: 0 7px; font-size: 11px; }
+.ttable.tstorage .chip.err { background: var(--danger-soft); color: var(--danger); }
+.ttable.tstorage .chip.ok { background: var(--muted); color: var(--ok); }
+
+.storage-total {
+  display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap;
+  margin: 0 0 12px; padding: 12px 14px;
+  border: 1px solid var(--border); border-radius: var(--radius);
+  background: var(--muted);
+}
+.storage-total .k { font-size: 12.5px; color: var(--dim); }
+.storage-total b { font-size: 19px; font-variant-numeric: tabular-nums; }
+.storage-total .faint { font-size: 11.5px; word-break: break-all; min-width: 0; }
+
+.storage-h4 { margin: 18px 0 8px; font-size: 13px; font-weight: 600; }
+
+/* ================================================================
  * Update section
  * ================================================================ */
 .vhero {
@@ -923,6 +968,24 @@ canvas { display: block; width: 100%; height: 100%; }
   .ttable.tbackup th:nth-child(2), .ttable.tbackup td:nth-child(2) { display: none; }
   .ttable.tbackup th:nth-child(3) { width: 150px; }
   .ttable.tbackup .bmeta { display: block; font-size: 11px; color: var(--faint); }
+
+  /* Storage on a phone: the path is what fills the row, so the total block
+     stacks (a long var_dir next to a number wraps badly) and the action column
+     folds into the button row underneath the table. Size stays visible - "what
+     is using the space" is the entire point of this page. */
+  .storage-total { flex-direction: column; align-items: flex-start; gap: 4px; padding: 10px 12px; }
+  .storage-total b { font-size: 17px; }
+  .storage-total .faint { font-size: 10.5px; }
+  .ttable.tstorage th, .ttable.tstorage td { padding-left: 8px; padding-right: 8px; }
+  .ttable.tstorage tbody td { height: 42px; }
+  .ttable.tstorage thead th { height: 32px; font-size: 12px; }
+  /* Direction rtl puts the ellipsis at the front, so the end of a long path -
+     the part that says which file it is - stays readable. */
+  .ttable.tstorage .sname .sub {
+    font-size: 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    direction: rtl; text-align: left;
+  }
+  .bscroll.storage-scroll .btn.sm { padding: 0 8px; font-size: 12px; }
 }
 
 /* ---------------- guest row actions ---------------- */

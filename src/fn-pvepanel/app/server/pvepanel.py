@@ -50,6 +50,10 @@ try:
     import maint as maint_mod  # noqa: E402
 except Exception:  # pragma: no cover
     maint_mod = None
+try:
+    import storage as storage_mod  # noqa: E402
+except Exception:  # pragma: no cover
+    storage_mod = None
 
 APP_NAME = "fn-pvepanel"
 VERSION = os.environ.get("PVEPANEL_VERSION") or "0.0.0"
@@ -290,6 +294,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json(self._backup_restore(body))
             if path == "/api/backup/delete":
                 return self._json(self._backup_delete(body))
+            if path == "/api/storage/cleanup":
+                return self._json(self._storage_cleanup(body))
             return self._json({"ok": False, "error": "not found"}, 404)
         except Exception:
             log("POST %s failed:\n%s" % (path, traceback.format_exc()))
@@ -343,6 +349,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(self._update_check(force))
         if path == "/api/update/status":
             return self._json(self._update_status())
+        if path == "/api/storage":
+            return self._json(self._storage_report())
         if path == "/api/backup/status":
             return self._json(self._backup_status())
         if path == "/api/backup/export":
@@ -678,6 +686,63 @@ class Handler(BaseHTTPRequestHandler):
         st["ok"] = True
         return st
 
+    # ---------------- storage ----------------
+
+    def _storage_report(self):
+        """Disk usage of the panel's own folders, plus the package cache.
+
+        Reports only - the numbers are a diagnostic, so an unreadable directory
+        costs its own row, never the page.
+        """
+        if storage_mod is None:
+            return {"ok": False, "error": "存储模块不可用", "items": [],
+                    "total": 0, "var_dir": var_dir(), "updates": [],
+                    "updates_keep": 2, "current_version": VERSION}
+        try:
+            data = storage_mod.report(var_dir(), VERSION)
+        except Exception as e:
+            log("storage report failed: %r" % (e,))
+            return {"ok": False, "error": str(e), "items": [], "total": 0,
+                    "var_dir": var_dir(), "updates": [], "updates_keep": 2,
+                    "current_version": VERSION}
+        out = dict(data or {})
+        out["ok"] = True
+        return out
+
+    def _storage_cleanup(self, body):
+        """One cleanup pass over the package cache and/or the logs.
+
+        The keep count comes from the report so the page and the automatic pass
+        cannot disagree about how many packages are worth keeping. Answers 409
+        while an update is downloading or installing: the .part file in that
+        folder is the transfer in progress, not a leftover.
+        """
+        if storage_mod is None:
+            return {"ok": False, "error": "存储模块不可用"}
+        body = body if isinstance(body, dict) else {}
+        target = str(body.get("target") or "updates").strip().lower()
+        if target not in ("updates", "logs", "all"):
+            return {"ok": False, "error": "不支持的清理目标：%s" % (target or "(空)")}
+        try:
+            keep = int(body.get("keep") or storage_mod.UPDATES_KEEP)
+        except (TypeError, ValueError):
+            keep = storage_mod.UPDATES_KEEP
+        try:
+            res = storage_mod.cleanup(var_dir(), target=target, keep=keep,
+                                      protect_version=VERSION, log=log)
+        except Exception as e:
+            log("storage cleanup failed: %r" % (e,))
+            return {"ok": False, "error": str(e)}
+        if not res.get("ok"):
+            if res.get("busy"):
+                # 409: the request was valid, the state is not. Retrying later works.
+                return self._json({"ok": False, "busy": True,
+                                   "error": res.get("error") or "更新正在进行"}, 409)
+            return {"ok": False, "error": res.get("error") or "清理失败"}
+        res["ok"] = True
+        res["report"] = self._storage_report()
+        return res
+
     def _backup_export(self):
         """Stream the configuration as a downloadable file.
 
@@ -890,6 +955,26 @@ def start_background_threads():
                                 backup_state, log, stop_m, tick=60)
 
         threading.Thread(target=loop_backup, name="auto-backup", daemon=True).start()
+
+    if storage_mod is not None:
+        # The package cache is trimmed once per start, in the background.
+        #
+        # Every start is the right moment, and after an upgrade it is the only
+        # moment: the update flow is uninstall -> install -> start, so the
+        # process that would do the deleting is replaced by the very install it
+        # is waiting for. Whoever runs afterwards is the first code that can
+        # safely touch that folder. A plain restart gets the same treatment for
+        # free and clears whatever accumulated in the meantime.
+        def purge_once():
+            try:
+                storage_mod.set_logger(log)
+                res = storage_mod.startup_purge(var_dir(), VERSION)
+                if res.get("skipped"):
+                    log("storage: startup cleanup skipped (%s)" % res.get("skipped"))
+            except Exception as exc:  # noqa: BLE001 - a cleanup must never block a start
+                log("storage: startup cleanup failed: %r" % (exc,))
+
+        threading.Thread(target=purge_once, name="storage-purge", daemon=True).start()
 
 
 def main():

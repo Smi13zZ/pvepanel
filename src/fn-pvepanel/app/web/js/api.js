@@ -87,6 +87,11 @@
     installUpdate: function () { return post("./api/update/install", {}); },
     updateStatus: function () { return req("./api/update/status"); },
 
+    storage: function () { return req("./api/storage"); },
+    storageCleanup: function (target, keep) {
+      return post("./api/storage/cleanup", { target: target, keep: keep });
+    },
+
     backupStatus: function () { return req("./api/backup/status"); },
     backupExport: function () { return download("./api/backup/export", "pvepanel-backup.json"); },
     backupToFolder: function () { return post("./api/backup/to-folder", {}); },
