@@ -619,7 +619,14 @@ canvas { display: block; width: 100%; height: 100%; }
   padding: 3px 6px; border-radius: 5px;
   background: var(--muted); color: var(--dim);
 }
-.tag.tag-cur { background: var(--primary); color: var(--primary-fg); }
+/* “当前 / 正在用” 标记：实心反转色，浅色主题近黑底白字，深色主题近白底深字。 */
+.tagcur {
+  display: inline-flex; align-items: center;
+  padding: 3px 6px; border-radius: 5px;
+  font-size: 11px; font-weight: 500; line-height: 1;
+  white-space: nowrap;
+  background: var(--primary); color: var(--primary-fg);
+}
 .tag.tag-warn { background: color-mix(in srgb, var(--warn) 16%, transparent); color: var(--warn); }
 
 .empty { text-align: center; padding: 36px 20px; }
@@ -782,7 +789,6 @@ canvas { display: block; width: 100%; height: 100%; }
 .ttable.tstorage td .btn.sm { white-space: nowrap; }
 .ttable.tstorage .chip { height: 20px; padding: 0 7px; font-size: 11px; }
 .ttable.tstorage .chip.err { background: var(--danger-soft); color: var(--danger); }
-.ttable.tstorage .chip.ok { background: var(--muted); color: var(--ok); }
 
 .storage-total {
   display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap;

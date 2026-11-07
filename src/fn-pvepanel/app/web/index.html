@@ -6,7 +6,7 @@
 <meta name="color-scheme" content="light dark">
 <title>PVEpanel</title>
 <link rel="icon" href="./images/icon.svg">
-<link rel="stylesheet" href="./style.css?v=26.11.4">
+<link rel="stylesheet" href="./style.css?v=26.11.20">
 </head>
 <body>
 <div id="app" v-cloak>
@@ -533,7 +533,7 @@
               <div class="srvcard" v-for="s in servers" :key="s.id" :class="{ current: s.id === activeId }">
                 <div class="srvhead">
                   <span class="srvname" :title="s.name || s.host">{{ s.name || s.host }}</span>
-                  <span class="tag tag-cur" v-if="s.id === activeId">{{ t('set.current') }}</span>
+                  <span class="tagcur" v-if="s.id === activeId">{{ t('set.current') }}</span>
                   <div class="spacer"></div>
                   <span class="state" :class="s.id === activeId ? (connTone === 'on' ? 'running' : connTone === 'err' ? 'unknown' : 'paused') : 'stopped'">
                     <i class="dot"></i>{{ s.id === activeId ? connText : t('set.idle') }}
@@ -977,7 +977,7 @@
                       <div class="mono ellipsis" :title="u.name">{{ u.name }}</div>
                       <div class="sub">
                         <span class="chip err" v-if="u.partial">{{ t('storage.partial') }}</span>
-                        <span class="chip ok" v-else-if="storage.current_version && u.name.indexOf(storage.current_version) >= 0">{{ t('storage.inUse') }}</span>
+                        <span class="tagcur" v-else-if="storage.current_version && u.name.indexOf(storage.current_version) >= 0">{{ t('storage.inUse') }}</span>
                         <span class="faint" v-else>{{ FMT.fmtDate(u.t) }}</span>
                       </div>
                     </td>
