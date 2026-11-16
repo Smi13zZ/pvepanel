@@ -5,7 +5,7 @@
 
 ```powershell
 $PY = "C:\Users\PVE\.dsh\dsh-runtimes\dsh-next-primary-runtime\dependencies\python\python.exe"
-cd "D:\Workspace\DeepSeek Harness\pve-panel"
+cd "D:\Workspace\DSH\pve-panel"
 ```
 
 > 单条同步命令有 ~120 秒硬上限。这三个工具自己把远程操作压在几十秒内完成，
@@ -214,7 +214,7 @@ CGI 里的 CRLF（`bad interpreter`）、`desktop_applaunchname` 与 `ui/config`
 
 ```powershell
 $PY = "C:\Users\PVE\.dsh\dsh-runtimes\dsh-next-primary-runtime\dependencies\python\python.exe"
-cd "D:\Workspace\DeepSeek Harness\pve-panel"
+cd "D:\Workspace\DSH\pve-panel"
 
 & $PY tools\build_fpk.py
 & $PY tools\inspect_fpk.py
