@@ -673,11 +673,12 @@ class Handler(BaseHTTPRequestHandler):
     def _update_status(self):
         if installer_mod is None:
             return {"ok": False, "phase": "idle", "current": VERSION,
-                    "error": "更新模块不可用"}
+                    "attempt": 0, "code": "", "error": "更新模块不可用"}
         try:
             st = installer_mod.status()
         except Exception as e:
-            return {"ok": False, "phase": "idle", "current": VERSION, "error": str(e)}
+            return {"ok": False, "phase": "idle", "current": VERSION,
+                    "attempt": 0, "code": "", "error": str(e)}
         st = dict(st or {})
         st["ok"] = True
         st["current"] = VERSION
@@ -690,20 +691,31 @@ class Handler(BaseHTTPRequestHandler):
         fpk asset, bad package) is answered synchronously so the browser gets a
         real error. The install itself is detached on purpose: it stops the
         very service that would be waiting for it.
+
+        The release info comes from the cache when it is still fresh. Forcing a
+        network lookup here was the wrong trade: the click happens right after
+        the page showed "a newer version exists", so the answer is already on
+        hand, and spending the first seconds of a download on a version check
+        left the progress bar with nothing to measure. A cold cache still
+        performs the lookup - but by then the phase is already "checking", so
+        the browser says "preparing" instead of pretending to download.
         """
         if installer_mod is None:
-            return {"ok": False, "error": "更新模块不可用"}
-        info = self._update_check(True)
-        if not info.get("ok"):
-            return {"ok": False, "error": info.get("detail") or info.get("error")
-                    or "无法获取版本信息"}
-        if not info.get("has_update"):
-            return {"ok": False, "error": "当前已是最新版本", "latest": info.get("latest")}
+            return {"ok": False, "code": "checkFailed", "error": "更新模块不可用"}
         try:
-            return installer_mod.start(info, VERSION, pick_port(), var_dir(), log)
+            return installer_mod.start(
+                None, VERSION, pick_port(), var_dir(), log,
+                resolve=self._update_info_for_install)
         except Exception as e:
             log("one-click update failed to start: %r" % (e,))
-            return {"ok": False, "error": str(e)}
+            return {"ok": False, "code": "", "error": str(e)}
+
+    def _update_info_for_install(self):
+        """The release info to install, network only when nothing is cached."""
+        cached = self._update_cached()
+        if cached.get("ok") and cached.get("checked") and not cached.get("reason"):
+            return cached
+        return self._update_check(True)
 
     # ---------------- server test ----------------
 
@@ -793,7 +805,8 @@ class Handler(BaseHTTPRequestHandler):
         body = body if isinstance(body, dict) else {}
         target = str(body.get("target") or "updates").strip().lower()
         if target not in ("updates", "logs", "all"):
-            return {"ok": False, "error": "不支持的清理目标：%s" % (target or "(空)")}
+            return {"ok": False, "code": "checkFailed",
+                    "error": "不支持的清理目标：%s" % (target or "(空)")}
         try:
             keep = int(body.get("keep") or storage_mod.UPDATES_KEEP)
         except (TypeError, ValueError):
@@ -806,10 +819,13 @@ class Handler(BaseHTTPRequestHandler):
             return {"ok": False, "error": str(e)}
         if not res.get("ok"):
             if res.get("busy"):
-                # 409: the request was valid, the state is not. Retrying later works.
-                return self._json({"ok": False, "busy": True,
+                # 409: the request was valid, the state is not. Retrying later
+                # works. The code travels with it so a bilingual page can say
+                # "an update is in progress" without echoing this sentence.
+                return self._json({"ok": False, "busy": True, "code": "busy",
                                    "error": res.get("error") or "更新正在进行"}, 409)
-            return {"ok": False, "error": res.get("error") or "清理失败"}
+            return {"ok": False, "code": "checkFailed",
+                    "error": res.get("error") or "清理失败"}
         res["ok"] = True
         res["report"] = self._storage_report()
         return res

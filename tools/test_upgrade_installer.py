@@ -23,10 +23,13 @@ import io
 import json
 import os
 import shutil
+import socket
+import ssl
 import sys
 import tarfile
 import threading
 import traceback
+import urllib.error
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 TOOLS_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -246,12 +249,20 @@ def release_info(url, version="26.11.4", name=None):
 
 def test_contract(c):
     section("对外契约：名字与常量不许漂")
-    c.eq(installer.PHASES, ("idle", "downloading", "installing", "failed"),
-         "PHASES 四个阶段")
+    # "checking" sits between the click and the first byte: the release lookup
+    # happens there and must be reportable, otherwise the bar claims to be
+    # downloading while nothing can arrive yet.
+    c.eq(installer.PHASES,
+         ("idle", "checking", "downloading", "installing", "failed"),
+         "PHASES 五个阶段")
+    c.eq(installer.ACTIVE_PHASES, ("checking", "downloading", "installing"),
+         "进行中的阶段由 PHASES 推导，不含 idle/failed")
     for fn in ("status", "start", "pick_asset", "validate_fpk", "download",
-               "build_script", "reset"):
+               "build_script", "reset", "find_previous_fpk", "error_code"):
         c.ok(callable(getattr(installer, fn, None)), "存在 " + fn + "()")
     c.eq(installer.APP_NAME, "fn-pvepanel", "APP_NAME 正确")
+    c.ok(issubclass(installer.UpdateError, ValueError),
+         "UpdateError 是 ValueError 的子类（旧调用方照常能 catch）")
 
 
 def test_status_shape(c):
@@ -680,14 +691,40 @@ def test_rollback(c):
                         version="26.11.3")
     new_pkg = make_fpk(os.path.join(ws, "new.fpk"), version="26.11.4")
 
-    c.eq(installer.find_previous_fpk("26.11.3", extra_dirs=[share]), prev_pkg,
-         "按版本号找到旧包")
-    c.eq(installer.find_previous_fpk("26.11.1", extra_dirs=[]), "",
-         "找不到对应版本时返回空串（不是异常）")
+    c.eq(installer.find_previous_fpk("26.11.3", extra_dirs=[share]),
+         prev_pkg, "按版本号找到旧包")
+    # A scratch var dir keeps this a pure "nothing matches" check: pointing it
+    # at the ambient context would find an earlier case's package, because the
+    # update folder is searched first - which is the whole point of the fix.
+    empty_var = os.path.join(ws, "empty_var")
+    os.makedirs(empty_var, exist_ok=True)
+    c.eq(installer.find_previous_fpk("26.11.1", extra_dirs=[], var_dir=empty_var),
+         "", "找不到对应版本时返回空串（不是异常）")
     c.eq(installer.find_previous_fpk("", extra_dirs=[share]), "",
          "版本为空时直接返回空串")
-    c.eq(installer.find_previous_fpk("26.11.3", extra_dirs=[], exclude=[prev_pkg]),
+    c.eq(installer.find_previous_fpk("26.11.3", extra_dirs=[], exclude=[prev_pkg],
+                                     var_dir=empty_var),
          "", "exclude 能排除掉待安装的新包")
+
+    # 一键更新把包下载到 <var>/update，当前运行的版本就躺在那儿 —— 查找必须
+    # 从这里找得到，否则安装脚本的回滚分支永远不执行。
+    local_var = os.path.join(ws, "local_var")
+    local_updir = os.path.join(local_var, "update")
+    os.makedirs(local_updir, exist_ok=True)
+    local_pkg = make_fpk(os.path.join(local_updir,
+                                      "fn-pvepanel-26.11.3-fnos-all.fpk"),
+                         version="26.11.3")
+    c.eq(installer.find_previous_fpk("26.11.3", extra_dirs=[], var_dir=local_var),
+         local_pkg, "包实际落盘的 update/ 目录里能找到回滚包")
+
+    # 同一版本有两份时取最新的一份：重新下载会刷新 mtime，挑旧的可能是曾经
+    # 下载不完整的那个。
+    newer = os.path.join(local_updir, "fn-pvepanel-26.11.3-fnos-all-old.fpk")
+    shutil.copyfile(local_pkg, newer)
+    os.utime(local_pkg, (1000, 1000))
+    os.utime(newer, (2000, 2000))
+    c.eq(installer.find_previous_fpk("26.11.3", extra_dirs=[], var_dir=local_var),
+         newer, "同版本多份时取 mtime 最新的那份")
 
     installer.set_context(var_dir=var, current="26.11.3")
     with Server() as s:
@@ -771,6 +808,144 @@ def test_status_log(c):
     c.eq(installer.status()["log"], "", "没有日志文件时返回空串")
 
 
+def test_attempts(c):
+    section("attempt：每次尝试递增，失败不复用上一轮的编号")
+    ws = fresh_workspace("attempts")
+    cli = make_fake_appcenter(os.path.join(ws, "bin"))
+    var = os.path.join(ws, "var")
+    os.makedirs(var, exist_ok=True)
+    installer.set_context(var_dir=var, current="26.11.3")
+    fpk = make_fpk(os.path.join(ws, "pkg.fpk"), version="26.11.4")
+
+    installer.reset()
+    base = installer.status()["attempt"]
+    c.ok(isinstance(base, int), "reset 后编号仍然是整数")
+
+    with Server() as s:
+        url = s.serve(fpk, "ok")
+        first = installer.start(release_info(url), "26.11.3", 8899, var,
+                                log=lambda m: None, appcenter=cli,
+                                spawn=fake_spawn([]))
+        c.eq(first.get("attempt"), base + 1, "第一次尝试编号 +1")
+        c.eq(installer.status()["attempt"], base + 1, "status 下发同一个编号")
+
+        # 上一轮停在 failed；下一轮必须换编号，否则前端会把旧状态当本轮
+        installer._set("failed", "26.11.4", "上一轮的失败")
+        installer.reset()
+        c.ok(installer.status()["attempt"] >= base + 1,
+             "reset 不会把编号倒退（倒退等于让旧死信重新变得可信）",
+             installer.status()["attempt"])
+        second = installer.start(release_info(url), "26.11.3", 8899, var,
+                                 log=lambda m: None, appcenter=cli,
+                                 spawn=fake_spawn([]))
+        c.ok(second.get("attempt") > first.get("attempt"),
+             "下一次尝试的编号严格更大",
+             "%r -> %r" % (first.get("attempt"), second.get("attempt")))
+
+        # 连续两次：编号单调递增，绝不重复
+        installer._set("idle", "", "")
+        a = installer.start(release_info(url), "26.11.3", 8899, var,
+                            log=lambda m: None, appcenter=cli, spawn=fake_spawn([]))
+        installer._set("idle", "", "")
+        b = installer.start(release_info(url), "26.11.3", 8899, var,
+                            log=lambda m: None, appcenter=cli, spawn=fake_spawn([]))
+        c.eq(b.get("attempt"), a.get("attempt") + 1,
+             "同进程内第二次尝试编号 +1")
+
+
+def test_busy_includes_checking(c):
+    section("进行中判定包含 checking：连点两次不能起两个下载")
+    ws = fresh_workspace("busy_checking")
+    cli = make_fake_appcenter(os.path.join(ws, "bin"))
+    var = os.path.join(ws, "var")
+    os.makedirs(var, exist_ok=True)
+    installer.set_context(var_dir=var, current="26.11.3")
+    installer.reset()
+    installer._set("checking", "26.11.4")
+    spawned = []
+    r = installer.start(release_info("http://127.0.0.1:1/x.fpk"), "26.11.3",
+                        8899, var, log=lambda m: None, appcenter=cli,
+                        spawn=fake_spawn(spawned))
+    c.eq(r.get("ok"), False, "checking 阶段再次 start 被拒")
+    c.eq(r.get("code"), "busy", "拒绝码是 busy")
+    c.eq(len(spawned), 0, "没有启动第二个安装脚本")
+    installer.reset()
+
+
+def test_error_codes(c):
+    section("错误码：网络与包校验的失败各自可翻译")
+    ws = fresh_workspace("codes")
+    cli = make_fake_appcenter(os.path.join(ws, "bin"))
+
+    # 网络异常 → 语言中立的码
+    c.eq(installer.error_code(installer.UpdateError("noAsset")), "noAsset",
+         "UpdateError 自带 code")
+    c.eq(installer.error_code(socket.gaierror(8, "nodename")), "netDns",
+         "gaierror → netDns")
+    c.eq(installer.error_code(socket.timeout()), "netTimeout",
+         "timeout → netTimeout")
+    c.eq(installer.error_code(ConnectionRefusedError()), "netRefused",
+         "refused → netRefused")
+    c.eq(installer.error_code(ConnectionResetError()), "netReset",
+         "reset → netReset")
+    c.eq(installer.error_code(ssl.SSLError("bad")), "netTls", "SSL → netTls")
+    c.eq(installer.error_code(urllib.error.HTTPError("u", 403, "x", {}, None)),
+         "gh403", "HTTP 403 → gh403")
+    c.eq(installer.error_code(urllib.error.HTTPError("u", 404, "x", {}, None)),
+         "gh404", "HTTP 404 → gh404")
+    # URLError 把真正的原因藏在 reason 里一层
+    c.eq(installer.error_code(urllib.error.URLError(socket.gaierror(8, "x"))),
+         "netDns", "URLError 里的 gaierror 被拆出来")
+    c.eq(installer.error_code(ValueError("随便什么")), "",
+         "未知异常没有码（界面回落到原文）")
+
+    # 包校验失败要带码，界面才能翻译
+    for name, maker, code in (
+        ("nomanifest", lambda p: make_fpk(p, members=["app.tgz"]), "pkgStructure"),
+        ("wrongapp", lambda p: make_fpk(p, appname="fn-qbpanel"), "pkgAppName"),
+    ):
+        target = maker(os.path.join(ws, name + ".fpk"))
+        try:
+            installer.validate_fpk(target, appcenter=cli)
+            c.ok(False, "%s 应该被拒" % name)
+        except installer.UpdateError as exc:
+            c.eq(exc.code, code, "%s 的错误码是 %s" % (name, code))
+
+    good = make_fpk(os.path.join(ws, "good.fpk"), version="26.11.4")
+    try:
+        installer.validate_fpk(good, appcenter=cli, expect_version="26.11.9")
+        c.ok(False, "版本不符应该被拒")
+    except installer.UpdateError as exc:
+        c.eq(exc.code, "pkgVersion", "版本不符的错误码是 pkgVersion")
+
+    try:
+        installer.validate_fpk(good, appcenter="/nonexistent/x")
+        c.ok(False, "没有 appcenter-cli 应该被拒")
+    except installer.UpdateError as exc:
+        c.eq(exc.code, "noCli", "缺少 appcenter-cli 的错误码是 noCli")
+
+    # 下载阶段失败同样带码，且 status 里下发
+    installer.set_context(var_dir=os.path.join(ws, "var"), current="26.11.3")
+    installer.reset()
+    r = installer.start(release_info("http://127.0.0.1:1/x.fpk"), "26.11.3",
+                        8899, os.path.join(ws, "var"), log=lambda m: None,
+                        appcenter=cli, spawn=fake_spawn([]))
+    st = installer.status()
+    c.eq(r.get("ok"), False, "连不上时 start 失败")
+    c.eq(st["phase"], "failed", "阶段是 failed")
+    c.ok(bool(st.get("code")), "status 带 error_code", st.get("code"))
+    c.ok(st.get("code") in ("netRefused", "netReset", "netDns", "netTimeout"),
+         "连不上的码是网络类", st.get("code"))
+
+    # 拒绝也要带码，且不改阶段（仍然是 failed 之前的状态）
+    installer.reset()
+    r = installer.start({"has_update": False, "latest": "26.11.3"},
+                        "26.11.3", 8899, os.path.join(ws, "var"),
+                        log=lambda m: None, appcenter=cli, spawn=fake_spawn([]))
+    c.eq(r.get("code"), "upToDate", "没有更新时拒绝码是 upToDate")
+    installer.reset()
+
+
 def test_script_runs(c):
     section("生成的脚本能被真实 sh 解析（不执行安装部分）")
     ws = fresh_workspace("sh_syntax")
@@ -832,6 +1007,7 @@ def main():
     for fn in (test_contract, test_status_shape, test_pick_asset, test_safe_name,
                test_validate, test_download, test_script, test_start_happy,
                test_start_rejections, test_start_bad_package, test_rollback,
+               test_attempts, test_busy_includes_checking, test_error_codes,
                test_spawn_failure, test_status_log, test_script_runs,
                test_real_fpk):
         try:

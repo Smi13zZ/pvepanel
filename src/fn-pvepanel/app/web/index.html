@@ -6,7 +6,7 @@
 <meta name="color-scheme" content="light dark">
 <title>PVEpanel</title>
 <link rel="icon" href="./images/icon.svg">
-<link rel="stylesheet" href="./style.css?v=26.11.20">
+<link rel="stylesheet" href="./style.css?v=26.11.21">
 </head>
 <body>
 <div id="app" v-cloak>
@@ -88,6 +88,21 @@
     </header>
 
     <div class="content">
+
+      <!-- ---------- 更新失败：任意页面都要能看到 ----------
+           从概览页发起更新、失败后用户并不在设置页，而失败提示原先只渲染在设置-更新
+           卡片里 —— 结果界面上一个字都没有，看起来像什么都没发生。这一条独立于设置
+           页，带「查看详情」直接跳过去，也能单独关掉。 -->
+      <div class="upfail" v-if="updateFailText && !updateInstalling">
+        <span class="upfail-ic" v-html="ic('alert')"></span>
+        <div class="upfail-text">{{ updateFailText }}</div>
+        <div class="spacer"></div>
+        <button class="btn sm" type="button" @click="openUpdateSection">{{ t('update.bannerDetail') }}</button>
+        <button class="icon-btn ghost upfail-x" type="button" :title="t('update.dismissFail')"
+                @click="dismissUpdateFail">
+          <span v-html="ic('close')"></span>
+        </button>
+      </div>
 
       <!-- ---------- no server at all ---------- -->
       <div class="card empty" v-if="loaded && !servers.length">
@@ -764,6 +779,10 @@
               </div>
             </div>
             <div class="hint" style="color:var(--danger);margin-top:10px" v-if="updateError">{{ updateError }}</div>
+            <!-- 没有回滚包时如实说清楚：继续承诺「会自动回滚」是在骗人。 -->
+            <div class="hint" style="margin-top:10px" v-if="updateNew && !updateRollbackReady">
+              {{ t('update.noRollback') }}
+            </div>
 
             <div class="sep"></div>
             <h3>{{ t('update.notes') }}</h3>
@@ -909,7 +928,7 @@
               <span class="faint mono">{{ storage.var_dir || '—' }}</span>
             </div>
 
-            <div class="faint" v-if="!storageItems.length">{{ t('storage.empty') }}</div>
+            <div class="faint" v-if="!storageItems.length">{{ t('storage.panelEmpty') }}</div>
             <div class="bscroll storage-scroll" v-else>
               <table class="ttable tstorage">
                 <thead>
@@ -1136,10 +1155,10 @@
 </div>
 
 <script src="./lib/vue.global.prod.js"></script>
-<script src="./js/i18n.js?v=26.11.4"></script>
-<script src="./js/util.js?v=26.11.4"></script>
-<script src="./js/charts.js?v=26.11.4"></script>
-<script src="./js/api.js?v=26.11.4"></script>
-<script src="./js/app.js?v=26.11.4"></script>
+<script src="./js/i18n.js?v=26.11.21"></script>
+<script src="./js/util.js?v=26.11.21"></script>
+<script src="./js/charts.js?v=26.11.21"></script>
+<script src="./js/api.js?v=26.11.21"></script>
+<script src="./js/app.js?v=26.11.21"></script>
 </body>
 </html>

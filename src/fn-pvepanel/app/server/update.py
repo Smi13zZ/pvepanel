@@ -158,13 +158,43 @@ def is_newer(latest, current):
 
 # ------------------------------------------------------------------- errors
 
-class CheckError(Exception):
-    """One layer failed. reason is machine-readable, message is for humans."""
+# Order matters: gaierror, timeout, refused and reset are all OSError subclasses,
+# and a generic branch above them would swallow the distinction that makes the
+# message actionable.
+_WIRE_CODES = (
+    (socket.gaierror, "netDns"),
+    (socket.timeout, "netTimeout"),
+    (TimeoutError, "netTimeout"),
+    (ConnectionRefusedError, "netRefused"),
+    (ConnectionResetError, "netReset"),
+    (ConnectionAbortedError, "netReset"),
+    (BrokenPipeError, "netReset"),
+    (ssl.SSLError, "netTls"),
+)
 
-    def __init__(self, reason, message):
+
+def _wire_code(exc):
+    """Name the failure at the socket level, or empty when it is not one."""
+    for kind, code in _WIRE_CODES:
+        if isinstance(exc, kind):
+            return code
+    return ""
+
+
+class CheckError(Exception):
+    """One layer failed. reason is machine-readable, message is for humans.
+
+    code is a second, finer machine token for the browser: the reasons above
+    describe *which layer* gave up, while the code names *what actually went
+    wrong* on the wire (DNS, refuse, TLS, rate limit). The bilingual UI has no
+    translation for "network", so it needs the narrower one.
+    """
+
+    def __init__(self, reason, message, code=""):
         Exception.__init__(self, message)
         self.reason = reason
         self.message = message
+        self.code = code or ""
 
 
 # Strongest first: when two layers disagree about why, the more actionable
@@ -194,6 +224,42 @@ def _pick_reason(pairs):
             if candidate == reason:
                 return reason
     return pairs[0][0] if pairs else "error"
+
+
+# The fine-grained code the bilingual UI translates. Kept next to the reason
+# table because the two describe the same answer at different resolutions: the
+# reason is what the fallback chain reasoned on, the code is what the user sees.
+_REASON_CODE = {
+    "not_found": "gh404",
+    "rate_limited": "gh403",
+    "timeout": "netTimeout",
+    "parse": "checkFailed",
+    "http": "checkFailed",
+    "no_release": "gh404",
+    "network": "netDns",
+}
+
+
+def _code(exc):
+    """The code a raising layer already decided on, if it did."""
+    return getattr(exc, "code", "") or ""
+
+
+def _pick_code(pairs, codes):
+    """The code belonging to the strongest failure, mirroring _pick_reason.
+
+    Ranked the same way so "which layer lost" and "what went wrong" always
+    describe the same attempt - picking them independently could blame the DNS
+    while the message quoted a rate limit.
+    """
+    best = _pick_reason(pairs)
+    for (reason, _msg), code in zip(pairs, codes):
+        if reason == best and code:
+            return code
+    for _reason, code in zip([p[0] for p in pairs], codes):
+        if code:
+            return code
+    return ""
 
 
 def _messages(pairs):
@@ -245,28 +311,36 @@ def _http_get(url, timeout, accept=None):
     except urllib.error.HTTPError as exc:
         code = int(getattr(exc, "code", 0) or 0)
         if code in (403, 429):
-            raise CheckError("rate_limited", "HTTP %d（GitHub 接口限流）" % code)
+            raise CheckError("rate_limited", "HTTP %d（GitHub 接口限流）" % code,
+                             code="gh403")
         if code == 404:
-            raise CheckError("not_found", "HTTP 404（仓库或发布不存在）")
-        raise CheckError("http", "HTTP %d" % code)
+            raise CheckError("not_found", "HTTP 404（仓库或发布不存在）",
+                             code="gh404")
+        raise CheckError("http", "HTTP %d" % code, code="checkFailed")
     except (socket.timeout, TimeoutError):
-        raise CheckError("timeout", "请求超时")
+        raise CheckError("timeout", "请求超时", code="netTimeout")
     except urllib.error.URLError as exc:
         detail = getattr(exc, "reason", None) or exc
         if isinstance(detail, (socket.timeout, TimeoutError)):
-            raise CheckError("timeout", "请求超时")
-        raise CheckError("network", "网络不可达：%s" % (detail,))
+            raise CheckError("timeout", "请求超时", code="netTimeout")
+        # The code has to name the real cause: "the DNS is broken" and "nothing
+        # answers on that port" are different repairs, and URLError hides which
+        # one it was one attribute down.
+        raise CheckError("network", "网络不可达：%s" % (detail,),
+                         code=_wire_code(detail))
     except ssl.SSLError as exc:
-        raise CheckError("network", "TLS 握手失败：%s" % (exc,))
+        raise CheckError("network", "TLS 握手失败：%s" % (exc,), code="netTls")
     except (http.client.HTTPException, OSError) as exc:
-        raise CheckError("network", "网络错误：%s" % (exc,))
+        raise CheckError("network", "网络错误：%s" % (exc,),
+                         code=_wire_code(exc))
     try:
         with resp:
             body = resp.read()
     except (socket.timeout, TimeoutError):
-        raise CheckError("timeout", "读取响应超时")
+        raise CheckError("timeout", "读取响应超时", code="netTimeout")
     except (http.client.HTTPException, OSError) as exc:
-        raise CheckError("network", "读取响应失败：%s" % (exc,))
+        raise CheckError("network", "读取响应失败：%s" % (exc,),
+                         code=_wire_code(exc))
     return body.decode("utf-8", "replace")
 
 
@@ -409,6 +483,9 @@ def _blank(current, repo):
         # reason is the machine-readable code (not_found, rate_limited, ...);
         # detail is the sentence a human should read. The UI shows detail.
         "reason": "",
+        # Language-neutral token for the bilingual UI; it translates this
+        # instead of echoing detail, which is Chinese only.
+        "error_code": "",
         "detail": "",
         "error": "",
         "cached": False,
@@ -484,21 +561,30 @@ def _lookup(current, repo, api, web, timeout, emit):
     out = _blank(current, repo)
     rel = None
     errors = []
+    # One code per layer, kept in step with the reason list. The strongest
+    # layer wins in both, so reason and error_code can never disagree.
+    codes = []
+
+    def remember(exc):
+        reason, message = _describe(exc)
+        errors.append((reason, message))
+        codes.append(_code(exc) or _wire_code(exc))
+        return message
+
     try:
         rel = _release_from_api(repo, api, timeout)
     except Exception as exc:
-        reason, message = _describe(exc)
-        errors.append((reason, message))
+        message = remember(exc)
         emit("版本检查：接口查询失败（%s），改走发布订阅源" % message)
     if rel is None:
         try:
             rel = _release_from_atom(repo, web, timeout)
         except Exception as exc:
-            reason, message = _describe(exc)
-            errors.append((reason, message))
+            remember(exc)
             out["reason"] = _pick_reason(errors)
             out["error"] = _messages(errors)
             out["detail"] = _FAIL_HINT.get(out["reason"], out["error"])
+            out["error_code"] = _pick_code(errors, codes) or _REASON_CODE.get(out["reason"], "")
             stamp = _now()
             out["checked"] = True
             out["checked_at"] = int(stamp)
@@ -531,6 +617,7 @@ def _lookup(current, repo, api, web, timeout, emit):
     if not out["current"]:
         out["reason"] = "unknown_current"
         out["error"] = "当前版本未知，无法判断是否有更新"
+        out["error_code"] = "checkFailed"
         out["detail"] = out["error"]
     stamp = _now()
     out["checked"] = True

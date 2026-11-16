@@ -80,10 +80,18 @@ for name in ("test_bootstrap", "test_maint", "test_upgrade_installer",
 if node:
     step("template check", [node, os.path.join(ROOT, "tools", "check_template.js")])
 
-# The delivery-record endpoints are exercised against a real HTTP service: the
-# unit test covers the storage rules, this covers the routes wiring them up.
+# The delivery-record and storage endpoints are exercised against a real HTTP
+# service: the unit tests cover the rules, these cover the routes wiring them up.
 step("notify log api", [sys.executable,
                         os.path.join(ROOT, "tools", "check_notify_log_api.py")])
+step("storage api", [sys.executable,
+                     os.path.join(ROOT, "tools", "check_storage_api.py")])
+
+# The one-click update UI contract: phases, translatable failure codes, the
+# "any page" failure bar, attempt baseline, byte counters, rollback honesty.
+# All of it is statically checkable and all of it has silently regressed before.
+step("update ui contract", [sys.executable,
+                            os.path.join(ROOT, "tools", "check_update_ui.py")])
 
 print("")
 if FAILS:

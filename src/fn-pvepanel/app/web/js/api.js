@@ -23,7 +23,14 @@
       return r.json().catch(function () {
         throw new Error("服务返回了非 JSON 内容（HTTP " + r.status + "）");
       }).then(function (doc) {
-        if (!r.ok) throw new Error(doc.error || ("HTTP " + r.status));
+        if (!r.ok) {
+          /* 服务端下发的 code 是语言中立的，界面据此自己翻译；status 也带上，
+             调用方要区分 409 这类「状态不是失败」的情况时不必去解析文案。 */
+          const err = new Error(doc.error || ("HTTP " + r.status));
+          err.code = doc.code || "";
+          err.status = r.status;
+          throw err;
+        }
         return doc;
       });
     });

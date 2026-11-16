@@ -168,17 +168,22 @@ def updates_list(var_dir):
 
 # ---------------------------------------------------------------- report
 
-#: (key, default label, parts under var_dir, kind, nested).
+#: (key, parts under var_dir, kind, nested).
 #:
 #: nested=True marks an item that lives inside another listed directory: the
 #: installer log sits in update/, so adding it to the total again would report
 #: more disk usage than the folder actually occupies.
+#:
+#: There is no label column on purpose. The row name is UI text, and a label
+#: baked in here is Chinese on an English page - the browser looks up
+#: "storage.item.<key>" and falls back to the key only when a translation is
+#: genuinely missing.
 LAYOUT = (
-    ("updates", "更新包缓存", ("update",), "dir", False),
-    ("backups", "配置备份", ("backups",), "dir", False),
-    ("panel_log", "面板日志", ("pvepanel.log",), "file", False),
-    ("panel_log1", "面板日志（上一份）", ("pvepanel.log.1",), "file", False),
-    ("update_log", "更新安装日志", ("update", "install.log"), "file", True),
+    ("updates", ("update",), "dir", False),
+    ("backups", ("backups",), "dir", False),
+    ("panel_log", ("pvepanel.log",), "file", False),
+    ("panel_log1", ("pvepanel.log.1",), "file", False),
+    ("update_log", ("update", "install.log"), "file", True),
 )
 
 
@@ -187,7 +192,7 @@ def report(var_dir, current_version=""):
     var_dir = var_dir or ""
     rows = []
     total = 0
-    for key, label, parts, kind, nested in LAYOUT:
+    for key, parts, kind, nested in LAYOUT:
         path = os.path.join(var_dir, *parts) if var_dir else ""
         if kind == "dir":
             size, files = _dir_size(path)
@@ -195,7 +200,6 @@ def report(var_dir, current_version=""):
             size, files = _file_size(path)
         rows.append({
             "key": key,
-            "label": label,
             "bytes": int(size),
             "files": int(files),
             "path": path,

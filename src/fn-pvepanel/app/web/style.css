@@ -14,7 +14,6 @@
   --sidebar: #fafafa;
   --card: #ffffff;
   --muted: #f5f5f5;
-  --hover: #f5f5f5;
   --border: #e5e5e5;
   --border-soft: #efefef;
 
@@ -34,7 +33,6 @@
   --ok: #16a34a;
   --warn: #f59e0b;
   --idle: #a3a3a3;
-  --dl: #2563eb;
   --ul: #d97706;
 
   --shadow-pop: 0 8px 24px -8px rgba(0, 0, 0, .18);
@@ -49,7 +47,6 @@
   --sidebar: #1c1c1c;
   --card: #1c1c1c;
   --muted: #262626;
-  --hover: #262626;
   --border: rgba(255, 255, 255, .10);
   --border-soft: rgba(255, 255, 255, .07);
 
@@ -69,7 +66,6 @@
   --ok: #4ade80;
   --warn: #fbbf24;
   --idle: #737373;
-  --dl: #60a5fa;
   --ul: #fbbf24;
 
   --shadow-pop: 0 10px 30px -10px rgba(0, 0, 0, .6);
@@ -229,15 +225,14 @@ svg { display: block; }
 .btn.icon { width: 36px; padding: 0; }
 .btn.icon.sm { width: 30px; }
 
-.input, .select, .textarea {
+.input, .select {
   width: 100%; height: 36px; padding: 0 11px;
   border-radius: var(--radius); border: 1px solid var(--border);
   background: var(--card); color: var(--text);
   outline: none; transition: border-color .12s, box-shadow .12s;
 }
-.textarea { height: auto; padding: 9px 11px; line-height: 1.5; resize: vertical; }
-.input:focus, .select:focus, .textarea:focus { border-color: var(--ring); box-shadow: 0 0 0 3px color-mix(in srgb, var(--ring) 22%, transparent); }
-.input::placeholder, .textarea::placeholder { color: var(--faint); }
+.input:focus, .select:focus { border-color: var(--ring); box-shadow: 0 0 0 3px color-mix(in srgb, var(--ring) 22%, transparent); }
+.input::placeholder { color: var(--faint); }
 .select { appearance: none; padding-right: 30px;
   background-image: linear-gradient(45deg, transparent 50%, currentColor 50%), linear-gradient(135deg, currentColor 50%, transparent 50%);
   background-position: calc(100% - 15px) 50%, calc(100% - 10px) 50%;
@@ -321,7 +316,6 @@ input[type="number"] { -moz-appearance: textfield; }
 .mono { font-family: var(--mono); font-size: 12px; }
 .dim { color: var(--dim); }
 .faint { color: var(--faint); }
-.nowrap { white-space: nowrap; }
 .ellipsis { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .row { display: flex; align-items: center; gap: 10px; }
 .row.wrap { flex-wrap: wrap; }
@@ -547,7 +541,6 @@ input[type="number"] { -moz-appearance: textfield; }
 
 /* ---------------- charts ---------------- */
 canvas { display: block; width: 100%; height: 100%; }
-.chart-box { position: relative; }
 .legend { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--dim); }
 
 /* ================================================================
@@ -880,6 +873,22 @@ canvas { display: block; width: 100%; height: 100%; }
 .upprog-ready { font-size: 12.5px; color: var(--faint); }
 .upkeep { font-size: 11.5px; color: var(--faint); }
 
+/* Update failure bar. Lives in .content rather than inside the update card
+   because an update can be started from anywhere, and a failure that only
+   renders on a settings tab nobody is looking at is not a notification. */
+.upfail {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 12px; margin-bottom: var(--gap);
+  border: 1px solid var(--danger); border-radius: var(--radius);
+  background: var(--danger-soft); color: var(--danger);
+  font-size: 12.5px;
+}
+.upfail-ic { flex: 0 0 auto; display: flex; color: var(--danger); }
+.upfail-ic svg { width: 16px; height: 16px; }
+.upfail-text { min-width: 0; flex: 1 1 auto; overflow-wrap: anywhere; }
+.upfail-x { flex: 0 0 auto; color: var(--danger); }
+.upfail .btn.sm { flex: 0 0 auto; background: transparent; border-color: var(--danger); color: var(--danger); }
+
 /* ---------------- notification event grid ---------------- */
 .evgrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
 .evrow {
@@ -1024,7 +1033,6 @@ canvas { display: block; width: 100%; height: 100%; }
   /* backup table: filename gets the room, size moves under it */
   .ttable.tbackup th:nth-child(2), .ttable.tbackup td:nth-child(2) { display: none; }
   .ttable.tbackup th:nth-child(3) { width: 150px; }
-  .ttable.tbackup .bmeta { display: block; font-size: 11px; color: var(--faint); }
 
   /* Storage on a phone: the path is what fills the row, so the total block
      stacks (a long var_dir next to a number wraps badly) and the action column

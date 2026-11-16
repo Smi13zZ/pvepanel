@@ -100,6 +100,12 @@ jobs:
           python3 tools/test_storage.py
           python3 tools/test_update.py
 
+      - name: Route and UI contracts
+        run: |
+          set -euo pipefail
+          python3 tools/check_storage_api.py
+          python3 tools/check_update_ui.py
+
       - name: Install fnpack
         run: |
           set -euo pipefail

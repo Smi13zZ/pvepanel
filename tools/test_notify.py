@@ -483,31 +483,32 @@ def e2e_edges(rep, sink):
     rep.check("连不上时返回 False 而不抛", ok2 is False, detail2)
     rep.eq("没有任何请求打到 sink", sink.count(), 0)
 
-    # test_channel 用的是预置文案
+    # 测试通知走的是同一条 send()：预置文案由 format_test 拼，面板再交给它。
     sink.reset(200, {"errcode": 0, "errmsg": "ok"})
-    ok, detail = notify.test_channel(channel("wecom", {"key": FAKE_WECOM_KEY}, name="运维群"))
+    title, body = notify.format_test("运维群")
+    ok, detail = notify.send(channel("wecom", {"key": FAKE_WECOM_KEY}, name="运维群"),
+                             title, body)
     rec = sink.only()
-    rep.check("test_channel 判成功", ok is True, detail)
+    rep.check("测试通知判成功", ok is True, detail)
     if rec:
         content = json.loads(rec["body"]).get("text", {}).get("content", "")
         rep.check("测试文案带渠道名", "运维群" in content, content)
-        rep.check("测试标题带产品前缀", content.startswith("[PVEpanel] 通知测试"), content[:30])
+        rep.check("测试标题带产品前缀", content.startswith("[PVEpanel] 通知测试"),
+                  content[:30])
 
-    # send_all：坏渠道不影响其它渠道
+    # 坏渠道不影响其它渠道：这一轮由调用方逐个 send，任何一条失败都不能中断。
     sink.reset(200, {"errcode": 0})
-    sink.set_route("/wecom", 200, {"errcode": 0})
     sink.set_route("/dingtalk", 200, {"errcode": 400, "errmsg": "bad"})
-    res = notify.send_all([
-        channel("wecom", {"key": FAKE_WECOM_KEY}, cid="a"),
-        {"id": "off", "type": "wecom", "enabled": False, "config": {"key": "x"}},
-        channel("dingtalk", {"url": sink.base() + "/dingtalk/bot", "secret": ""}, cid="b"),
-        channel("bark", {"key": ""}, cid="c"),
-    ], "[PVEpanel] 测试", "正文")
-    rep.eq("send_all 只处理启用渠道", len(res), 3)
-    rep.check("第一个成功", res[0]["ok"] is True, res[0])
-    rep.check("第二个失败但没中断", res[1]["ok"] is False, res[1])
-    rep.check("第三个因缺 key 失败", res[2]["ok"] is False, res[2])
-    rep.check("结果里带 id", [r["id"] for r in res] == ["a", "b", "c"], [r["id"] for r in res])
+    results = []
+    for ch in (channel("wecom", {"key": FAKE_WECOM_KEY}, cid="a"),
+               channel("dingtalk", {"url": sink.base() + "/dingtalk/bot",
+                                    "secret": ""}, cid="b"),
+               channel("bark", {"key": ""}, cid="c")):
+        results.append((ch["id"],) + notify.send(ch, "[PVEpanel] 测试", "正文"))
+    rep.eq("三条渠道都给出了结果", [r[0] for r in results], ["a", "b", "c"])
+    rep.check("第一个成功", results[0][1] is True, results[0])
+    rep.check("第二个失败但没中断", results[1][1] is False, results[1])
+    rep.check("第三个因缺 key 失败", results[2][1] is False, results[2])
 
 
 # ------------------------------------------------------------------- UNIT
@@ -740,29 +741,18 @@ def unit_meta(rep):
     rep.eq("中文标签", zh["bark"]["labels"]["key"], "设备 Key")
     rep.eq("英文标签", en["bark"]["labels"]["key"], "Device key")
     rep.eq("双语表同时下发", zh["bark"]["labels_i18n"]["key"]["en"], "Device key")
-    rep.eq("type_list 中文", [x["type"] for x in notify.type_list("zh")][0], "bark")
     rep.eq("事件清单 12 条", len(notify.EVENTS), 12)
     rep.check("事件双语", all(set(v) >= {"zh", "en", "level"} for v in notify.EVENTS.values()))
-    rep.eq("未知事件名原样回显", notify.event_label("nope"), "nope")
+    # event_list 是事件开关那一列的唯一来源；每个键都要有可显示的名字。
+    listed = notify.event_list("zh")
+    rep.eq("event_list 覆盖全部事件", [e["key"] for e in listed],
+           list(notify.EVENTS.keys()))
+    rep.check("event_list 每项都有标签",
+              all(e["label"] for e in listed), listed[:2])
 
 
 def unit_format(rep):
-    rep.section("format_alert / format_test")
-    title, body = notify.format_alert("storage_full", node="pve1",
-                                     fields={"存储": "local-lvm", "用量": "96%"},
-                                     ts="2026-11-05 20:00:00")
-    rep.eq("标题形如 [PVEpanel] 存储水位告警", title, "[PVEpanel] 存储水位告警")
-    rep.check("正文含节点", "节点: pve1" in body, body)
-    rep.check("正文含存储名", "local-lvm" in body, body)
-    rep.check("正文含百分比", "96%" in body, body)
-    rep.check("正文含时间", "2026-11-05 20:00:00" in body, body)
-    rep.check("正文是多行", len(body.splitlines()) >= 4, body)
-    rep.check("正文没有 Markdown 表格", "|" not in body and "---" not in body, body)
-
-    t_en, b_en = notify.format_alert("node_offline", node="pve9", lang="en")
-    rep.eq("英文标题", t_en, "[PVEpanel] Node offline")
-    rep.check("英文正文用 Node:", "Node: pve9" in b_en, b_en)
-
+    rep.section("format_test：测试通知的预置文案")
     t, b = notify.format_test("运维群")
     rep.check("测试标题", t.startswith("[PVEpanel]"), t)
     rep.check("测试正文点名渠道", "运维群" in b, b)

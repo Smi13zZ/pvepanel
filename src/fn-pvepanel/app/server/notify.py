@@ -279,27 +279,12 @@ def type_meta(lang="zh"):
     return out
 
 
-def type_list(lang="zh"):
-    """Flat [{'type', 'label'}] list, for a dropdown."""
-    return [{"type": key,
-             "label": meta["label_zh"] if not _is_en(lang) else meta["label_en"]}
-            for key, meta in CHANNEL_TYPES.items()]
-
-
 def event_list(lang="zh"):
     """Flat [{'key', 'label', 'level'}] list for the event switches."""
     return [{"key": key,
              "label": _pick(meta, lang),
              "level": meta.get("level") or "info"}
             for key, meta in EVENTS.items()]
-
-
-def event_label(event, lang="zh"):
-    """Human name of one alert event; unknown keys are echoed back."""
-    meta = EVENTS.get(str(event or "").strip())
-    if not meta:
-        return str(event or "")
-    return _pick(meta, lang)
 
 
 # --------------------------------------------------------------------------
@@ -474,33 +459,13 @@ def mask(cfg):
 
 # --------------------------------------------------------------------------
 # message shaping (PVE flavoured, plain text - no markdown tables)
+#
+# There is exactly one shaper here. Alert pushes are composed by notifier.py,
+# which owns the "中文 / English" rule and knows which numbers matter for each
+# event; a second generic shaper used to live beside this one and had no
+# callers, only tests - it described an alert's fields as a flat list, which is
+# the shape the panel stopped using.
 # --------------------------------------------------------------------------
-def format_alert(event, node="", fields=None, ts=None, lang="zh"):
-    """Build (title, body) for one alert.
-
-    fields is an ordered mapping - or a list of pairs - of already formatted
-    rows; the caller decides which numbers matter. Bodies stay plain multi-line
-    text because most of these channels render markdown poorly or not at all.
-    """
-    label = event_label(event, lang)
-    title = "%s %s" % (TITLE_PREFIX, label or ("Notification" if _is_en(lang) else "通知"))
-    rows = []
-    if node:
-        rows.append(("Node" if _is_en(lang) else "节点", str(node)))
-    if isinstance(fields, dict):
-        rows.extend((str(k), str(v)) for k, v in fields.items())
-    elif isinstance(fields, (list, tuple)):
-        for item in fields:
-            if isinstance(item, (list, tuple)) and len(item) == 2:
-                rows.append((str(item[0]), str(item[1])))
-            elif isinstance(item, dict):
-                rows.append((str(item.get("label") or item.get("name") or ""),
-                             str(item.get("value") or item.get("detail") or "")))
-    body = ["%s: %s" % (k, v) for k, v in rows if k]
-    body.append(("Time: " if _is_en(lang) else "时间：") + str(ts or time.strftime("%Y-%m-%d %H:%M:%S")))
-    return title, "\n".join(body)
-
-
 def format_test(name="", lang="zh"):
     """The canned message a test delivery carries.
 
@@ -809,31 +774,3 @@ def send(channel, title, body, timeout=8.0):
         return False, str(exc)[:300]
 
 
-def test_channel(channel, timeout=8.0):
-    """Send the canned test message. Returns the same (ok, detail) as send()."""
-    ch = _as_dict(channel)
-    name = str(ch.get("name") or "").strip() or str(ch.get("type") or "").strip()
-    title, body = format_test(name)
-    return send(ch, title, body, timeout=timeout)
-
-
-def send_all(channels, title, body, timeout=8.0):
-    """Push one message to every enabled channel.
-
-    Returns a list of {'id', 'name', 'type', 'ok', 'detail'} records. One failing
-    channel never stops the rest and nothing raises.
-    """
-    out = []
-    for ch in (channels or []):
-        ch = _as_dict(ch)
-        if not ch or not ch.get("enabled", True):
-            continue
-        ok, detail = send(ch, title, body, timeout=timeout)
-        out.append({
-            "id": str(ch.get("id") or ""),
-            "name": str(ch.get("name") or ""),
-            "type": str(ch.get("type") or ""),
-            "ok": bool(ok),
-            "detail": detail,
-        })
-    return out

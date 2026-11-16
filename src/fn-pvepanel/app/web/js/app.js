@@ -14,7 +14,6 @@
   const ICONS = {
     dash: svg('<rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/>'),
     server: svg('<rect x="3" y="4" width="18" height="7" rx="2"/><rect x="3" y="13" width="18" height="7" rx="2"/><path d="M7 7.5h.01M7 16.5h.01"/>'),
-    cluster: svg('<rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/>'),
     disk: svg('<rect x="2.5" y="5" width="19" height="6" rx="2"/><rect x="2.5" y="13" width="19" height="6" rx="2"/><path d="M6.5 8h.01M6.5 16h.01"/><path d="M17 8h2.5M17 16h2.5"/>'),
     storage: svg('<path d="M3 7c0-1.7 4-3 9-3s9 1.3 9 3-4 3-9 3-9-1.3-9-3z"/><path d="M3 7v5c0 1.7 4 3 9 3s9-1.3 9-3V7"/><path d="M3 12v5c0 1.7 4 3 9 3s9-1.3 9-3v-5"/>'),
     list: svg('<path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/>'),
@@ -100,11 +99,22 @@
         updateInstallDetail: "",
         updateProgressDone: 0,
         updateProgressTotal: 0,
+        // Shown as red text inside the update card...
         updateError: "",
+        // ...and this one as a bar on every page: an update started from the
+        // dashboard failing while the operator is elsewhere must not be silent.
+        updateFailText: "",
         updatePollTimer: null,
         updateBaseline: "",
-        updatePollFails: 0,
-
+        // Server-side attempt counter. The failure state never clears on its
+        // own, so a retry has to be able to tell "this is last run's corpse"
+        // from "this run died" - otherwise the first poll after the click
+        // reports the old reason and closes the overlay while the download is
+        // still running.
+        updateAttempt: 0,
+        updateIgnoreAttempt: 0,
+        updateRollbackReady: false,
+        updateSawActive: false,
         updatePeakPct: 0,
 
         // ---- maintenance ----
@@ -211,6 +221,10 @@
         const info = this.updateInfo || {};
         const table = window.I18N.STRINGS[this.lang] || {};
         if (info.has_update) return t("update.newSub");
+        /* error_code 优先：服务端的中文句子回显到英文界面上就是中文，
+           而 code 由界面按当前语言翻译。 */
+        const byCode = this.updateCodeText(info.error_code || "");
+        if (byCode) return byCode;
         if (info.reason) {
           const key = "update.detail." + info.reason;
           if (table[key] !== undefined) return t(key);
@@ -896,101 +910,243 @@
         }
       },
 
-      /* One-click update.
+      /* 服务端只下发语言中立的状态，句子由界面按当前语言拼。
+         错误优先按 code 翻译，取不到才回落到服务端的中文 detail —— 英文界面
+         不能冒出中文句子。 */
+      updateCodeText(code, arg) {
+        if (!code) return "";
+        const table = window.I18N.STRINGS[this.lang] || {};
+        const key = "update.code." + code;
+        return table[key] !== undefined ? t(key, { v: arg || "" }) : "";
+      },
+
+      /* 统一的失败收尾：设置页红字 + 任意页面可见的失败条。 */
+      failInstall(code, arg, fallback) {
+        const text = this.updateCodeText(code, arg) || fallback || "";
+        this.updateError = t("update.installFailed", { v: text });
+        this.updateFailText = this.updateError;
+        this.updateInstallDetail = "";
+      },
+
+      dismissUpdateFail() {
+        this.updateFailText = "";
+      },
+
+      openUpdateSection() {
+        this.setTab = "update";
+        this.go("settings");
+      },
+
+      /* 只读一次状态，用于页面加载时判断「有没有回滚包可退」。更新页初始显示
+         的这句提示必须和真实状态一致，不能等到出错才去问。 */
+      async loadUpdateState() {
+        try {
+          const st = await API.updateStatus();
+          if (st && typeof st.rollback === "boolean") {
+            this.updateRollbackReady = st.rollback;
+          }
+          if (st && typeof st.attempt === "number") {
+            this.updateAttempt = st.attempt;
+          }
+        } catch (e) {
+          // 读不到就不显示那句提示，别猜
+        }
+      },
+
+      /* 一键更新。
        *
-       * The download happens inside the POST, so the progress poll MUST already
-       * be running before that request is awaited - otherwise the bar sits at
-       * zero for the whole download. The overlay stays up afterwards because
-       * the install stops the very service serving this page. */
+       * 下载发生在 POST 里，所以轮询必须先起来再 await 那个请求，否则整段下载
+       * 期间进度条一直停在零。遮罩随后一直留着，因为安装会把这个页面背后的
+       * 服务停掉。 */
       async installUpdate() {
         if (this.updateInstalling) return;
         this.updateError = "";
+        this.updateFailText = "";
         this.updateInstallVersion = (this.updateInfo && this.updateInfo.latest) || "";
-        this.updateInstallDetail = "";
+        this.updateInstallDetail = t("update.checking");
         this.updateProgressDone = 0;
         this.updateProgressTotal = 0;
         this.updatePeakPct = 0;
         this.updateInstalling = true;
+        this.updateSawActive = false;
         this.updateBaseline = this.appVersion;
+
+        /* 上一轮的失败状态还在服务端存着（它不会自己回 idle），而新一轮的请求
+           要先跑完版本检查才改阶段。先单独读一次编号当基线：页面刚打开时内存
+           里还没有任何编号，靠安装请求的返回值又太晚（它要等整个下载结束）。 */
+        this.updateIgnoreAttempt = this.updateAttempt || 0;
+        try {
+          const base = await API.updateStatus();
+          if (base && typeof base.attempt === "number") {
+            this.updateIgnoreAttempt = base.attempt;
+            this.updateAttempt = base.attempt;
+          }
+          if (base && typeof base.rollback === "boolean") {
+            this.updateRollbackReady = base.rollback;
+          }
+        } catch (e) {
+          // 读不到就退回内存里的值，不能因此挡住更新
+        }
 
         this.pollUpdateProgress();
         try {
           const r = await API.installUpdate();
           if (!r || r.ok === false) {
-            throw new Error((r && (r.error || r.detail)) || "?");
+            throw this.updateRefusal(r);
           }
+          if (typeof r.attempt === "number") this.updateAttempt = r.attempt;
+          this.updateRollbackReady = !!r.rollback;
           this.toast(t("update.installStarted", { v: r.version || this.updateInstallVersion }));
           this.waitForUpgrade();
         } catch (e) {
           this.updateInstalling = false;
           this.stopUpdatePolling();
-          this.updateError = t("update.installFailed", { msg: String(e.message || e) });
+          if (e && e.code !== undefined) {
+            this.failInstall(e.code, e.arg, e.message);
+          } else {
+            this.failInstall("", "", String((e && e.message) || e));
+          }
           this.toast(this.updateError, "err");
+        }
+      },
+
+      /* 服务端拒绝时下发的是语言中立的 code，界面自己翻译。 */
+      updateRefusal(res) {
+        const err = new Error((res && (res.error || res.detail)) || "install failed");
+        err.code = (res && res.code) || "";
+        err.arg = (res && res.latest) || "";
+        return err;
+      },
+
+      /* 服务端进度是瞬时快照，两次轮询之间可能差几十个百分点。显示值只增不减，
+         避免进度条回头跳。阶段文案一律本地拼，detail 只在失败时才有意义。 */
+      applyUpdateState(st) {
+        if (!st) return;
+        const done = Number(st.done) || 0;
+        const total = Number(st.total) || 0;
+        if (done > this.updateProgressDone) this.updateProgressDone = done;
+        if (total > this.updateProgressTotal) this.updateProgressTotal = total;
+        if (typeof st.rollback === "boolean") this.updateRollbackReady = st.rollback;
+        if (st.phase === "checking") {
+          this.updateInstallDetail = t("update.checking");
+        } else if (st.phase === "downloading") {
+          this.updateInstallDetail = t("update.downloading");
+        } else if (st.phase === "installing") {
+          this.updateInstallDetail = t("update.restarting");
+          /* 重启阶段没有可测总量：把 total 清零，进度区退回「准备中」，
+             不假装还有一个百分比在走。 */
+          this.updateProgressTotal = 0;
+        }
+        if (st.phase === "downloading" || st.phase === "installing") {
+          this.updateSawActive = true;
         }
       },
 
       pollUpdateProgress() {
         this.stopUpdatePolling();
+        const self = this;
+        let misses = 0;
         const tick = async () => {
           try {
-            const s = await API.updateStatus();
-            if (!s) return;
-            // only ever grow the counters: the server reports an instantaneous
-            // snapshot and a stalled read must not make the bar go backwards
-            const done = Number(s.done) || 0;
-            const total = Number(s.total) || 0;
-            if (done > this.updateProgressDone) this.updateProgressDone = done;
-            if (total > this.updateProgressTotal) this.updateProgressTotal = total;
-            if (s.detail) this.updateInstallDetail = s.detail;
-            if (s.phase === "failed" && s.detail) {
-              this.updateError = s.detail;
+            const st = await API.updateStatus();
+            misses = 0;
+            if (!st) {
+              self.updatePollTimer = setTimeout(tick, 400);
+              return;
             }
+            if (typeof st.attempt === "number") self.updateAttempt = st.attempt;
+            if (st.phase === "failed") {
+              /* 服务端不会自己回 idle。编号没变就说明这条死信属于上一轮，
+                 等这一轮真正开始。 */
+              if (typeof st.attempt === "number" &&
+                  st.attempt <= self.updateIgnoreAttempt) {
+                self.updatePollTimer = setTimeout(tick, 400);
+                return;
+              }
+              self.updateInstalling = false;
+              self.failInstall(st.code || "", st.arg || "", st.detail || "");
+              return;
+            }
+            /* 新版本已上线：面板报告的版本号不再是安装前那个。 */
+            if (st.current && self.updateBaseline &&
+                st.current !== self.updateBaseline) {
+              self.finishUpdate(st.current);
+              return;
+            }
+            /* 升级中途面板被换掉、新版本却没起来时，脚本会装回旧包再启动。
+               于是回到这里的是「同一个版本 + 全新的 idle」，而内存里
+               updateInstalling 还是 true，原先会一直轮询下去。 */
+            if (st.phase === "idle" && self.updateSawActive) {
+              const tail = String(st.log || "");
+              const rolled = /rolling back/.test(tail);
+              self.updateInstalling = false;
+              self.failInstall("", "",
+                t(rolled ? "update.rolledBack" : "update.installTimeout"));
+              return;
+            }
+            self.applyUpdateState(st);
           } catch (e) {
-            // the service is restarting; keep the overlay, just stop polling
+            /* 面板被卸载/重启期间接口会连续失败若干次，这是升级的正常过程，
+               只要它还会回来就继续等。 */
+            misses += 1;
+            if (misses > 180) {
+              self.updateInstalling = false;
+              self.failInstall("", "", t("update.installTimeout"));
+              return;
+            }
           }
+          self.updatePollTimer = setTimeout(tick, 400);
         };
-        tick();
-        this.updatePollTimer = setInterval(tick, 900);
+        this.updatePollTimer = setTimeout(tick, 0);
       },
 
       stopUpdatePolling() {
         if (this.updatePollTimer) {
-          clearInterval(this.updatePollTimer);
+          clearTimeout(this.updatePollTimer);
           this.updatePollTimer = null;
         }
       },
 
-      /* Stay on the overlay until the panel reports a version different from
-       * the one we started on. During the reinstall the API is simply gone, so
-       * failures are expected and must not end the wait early. */
+      /* 装好了：提示一行「已更新到 v{v}」，1.5 秒后整体重新加载。
+         面板在升级过程中被卸载重装，前端内存状态（版本号、设置、路由）都还是
+         旧的，只刷新数据不够。 */
+      finishUpdate(version) {
+        const self = this;
+        /* 这里的两个计数器是字节数，不是百分比：写 100/100 会让界面显示成
+           「100 B / 100 B」。下载结束后真实总量本来就在，保持不动；下载阶段没
+           拿到总量的情况下 total 就是 0，进度区退回「准备中」，不编数字。 */
+        this.updateInstallDetail = t("update.done", { v: version || "" });
+        this.toast(t("update.done", { v: version || "" }));
+        setTimeout(function () {
+          self.updateInstalling = false;
+          location.reload();
+        }, 1500);
+      },
+
+      /* 留在遮罩上直到面板报告的版本与开始时不同。重装期间接口本来就会消失，
+         失败属于计划内，不能因此提前结束等待。 */
       async waitForUpgrade() {
-        this.updateInstallDetail = t("update.installing");
-        let fails = 0;
+        this.updateInstallDetail = t("update.restarting");
         for (let i = 0; i < 240; i++) {
           await new Promise((r) => setTimeout(r, 1500));
           try {
             const h = await fetch("./api/health", { cache: "no-store" }).then((r) => r.json());
-            fails = 0;
             const v = (h && h.version) || "";
             if (v && v !== this.updateBaseline && v !== "0.0.0") {
-              this.updateInstalling = false;
               this.stopUpdatePolling();
-              this.toast(t("update.found", { v: v }));
-              window.location.reload();
+              this.finishUpdate(v);
               return;
             }
-            this.updateInstallDetail = t("update.installing");
+            this.updateInstallDetail = t("update.restarting");
           } catch (e) {
-            fails++;
-            // the uninstall→install window is the service being gone; that is
-            // the plan, not a failure, so say so rather than looking stuck
+            // uninstall→install 之间服务不在：这是计划，不是失败
             this.updateInstallDetail = t("update.progressUnknown");
           }
         }
-        // never leave the operator staring at a frozen overlay
+        // 不能让操作者对着一个冻住的遮罩
         this.updateInstalling = false;
         this.stopUpdatePolling();
-        this.updateError = t("update.installFailed", { msg: "timeout" });
+        this.failInstall("", "", t("update.installTimeout"));
       },
 
       // ---- maintenance ----
@@ -1193,7 +1349,13 @@
           this.loadLog();
         } catch (e) {
           // 409 means a download is running: that is a state, not a failure
-          this.toast(t("storage.cleanFailed", { msg: String(e.message || e) }), "err");
+          const code = (e && e.code) || "";
+          if (code === "busy") {
+            this.toast(t("storage.cleanBusy"), "err");
+          } else {
+            const text = this.updateCodeText(code, "") || String((e && e.message) || e);
+            this.toast(t("storage.cleanFailed", { msg: text }), "err");
+          }
         } finally {
           this.storageBusy = "";
         }
@@ -1296,7 +1458,7 @@
         if (id === "maint") this.loadMaint();
         if (id === "storage") this.loadStorage();
         if (id === "notify") this.loadNotifyLog();
-        if (id === "update") this.checkUpdate(false);
+        if (id === "update") { this.checkUpdate(false); this.loadUpdateState(); }
       },
       notifyLogFilter() { this.$nextTick(this.measureNotifyLog); },
       lang() { this.$nextTick(this.measureNotifyLog); },
