@@ -843,51 +843,98 @@ canvas { display: block; width: 100%; height: 100%; }
    go dark; this stays up until the panel answers again. The progress block
    has a fixed height in both states so switching from 下载中 to 准备中 cannot
    make the box jump. */
+/* ---------------- new-release banner (every view) ---------------- */
+.upbanner {
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  padding: 11px 14px; margin-bottom: var(--gap);
+  border: 1px solid color-mix(in srgb, var(--warn) 42%, var(--border));
+  background: color-mix(in srgb, var(--warn) 9%, var(--card));
+  border-radius: var(--radius-lg);
+}
+.upbanner-ic { flex: 0 0 22px; width: 22px; height: 22px; display: flex; align-items: center; color: var(--warn); }
+.upbanner-text { display: flex; flex-direction: column; gap: 1px; min-width: 0; flex: 1 1 auto; }
+.upbanner-text b { font-size: 13.5px; font-weight: 600; }
+.upbanner-text span { font-size: 12px; color: var(--dim); }
+.upbanner-x { width: 28px; height: 28px; flex: 0 0 28px; }
+
+/* ---------------- one-click update overlay ---------------- */
+/* 居中卡片 + 旋转图标；进度条放在阶段说明下面，跟着下载走。 */
 .upoverlay {
-  position: fixed; inset: 0; z-index: 95;
-  background: rgba(0, 0, 0, .55);
-  display: grid; place-items: center; padding: 20px;
-  backdrop-filter: blur(2px);
+  position: fixed; inset: 0; z-index: 95; padding: 20px;
+  background: rgba(0, 0, 0, .5); display: grid; place-items: center;
 }
 .upoverlay-box {
-  width: min(420px, 100%);
+  /* 固定宽度：内容（阶段文字、大小、百分比）在各阶段长短不同，
+     用 min() 让宽度跟随内容会让弹窗忽大忽小。 */
+  width: min(400px, 100%); min-height: 208px;
+  padding: 26px 22px; text-align: center;
+  /* align-items:center 不能省：改成 flex 列之后，子项默认 stretch，
+     旋转图标会被拉成整行宽、靠左摆放。 */
+  display: flex; flex-direction: column; justify-content: center; align-items: center;
   background: var(--bg); border: 1px solid var(--border);
   border-radius: var(--radius-lg); box-shadow: var(--shadow-pop);
-  padding: 22px 22px 18px;
-  display: flex; flex-direction: column; align-items: center; gap: 10px;
-  text-align: center;
 }
-.upspin { width: 26px; height: 26px; color: var(--accent-bar); animation: spin 1.1s linear infinite; }
-.upspin svg { width: 26px; height: 26px; }
-@keyframes spin { to { transform: rotate(360deg); } }
-.uptitle { font-size: 15px; font-weight: 600; }
-.upstage { font-size: 12.5px; color: var(--dim); min-height: 34px; }
+.upspin { flex: 0 0 auto; width: 26px; height: 26px; display: flex; color: var(--text); }
+.upspin svg { width: 26px; height: 26px; animation: qbspin 1s linear infinite; }
+@keyframes qbspin { to { transform: rotate(360deg); } }
+.uptitle { font-size: 15px; font-weight: 600; margin: 12px 0 6px; text-align: center; }
+.upstage {
+  font-size: 12.5px; color: var(--dim); overflow-wrap: anywhere; text-align: center;
+  /* 阶段文字换行数不同（「正在下载安装包…」vs「安装包已就绪，正在重启服务…」），
+     预留两行高度，避免切换阶段时整块上下跳。 */
+  min-height: 34px; line-height: 17px;
+}
+/* 进度区：两种形态共用同一块固定高度的空间，
+   所以从「下载中」切到「准备中」时弹窗不会变高变矮。 */
 .upprog-block {
-  width: 100%; height: 44px;
-  display: flex; flex-direction: column; justify-content: center; gap: 6px;
+  width: 100%; align-self: stretch;
+  /* 6px 条 + 7px 间距 + 17px 文字行 = 30px，固定住 */
+  height: 30px; margin-top: 14px;
+  display: flex; flex-direction: column; justify-content: flex-start;
 }
-.upprog { width: 100%; height: 6px; border-radius: 999px; background: var(--muted); overflow: hidden; }
-.upprog-fill { height: 100%; border-radius: 999px; background: var(--accent-bar); transition: width .25s ease; }
-.upprog-meta { display: flex; align-items: baseline; gap: 8px; font-size: 11.5px; color: var(--faint); font-variant-numeric: tabular-nums; }
-.upprog-meta .upmeta-pct { margin-left: auto; color: var(--dim); }
-.upprog-ready { font-size: 12.5px; color: var(--faint); }
-.upkeep { font-size: 11.5px; color: var(--faint); }
+/* 进度条显式拉满：align-items:center 会让子项按内容宽度收缩，
+   不写宽度就会塌成 0，看起来像「进度条不见了」。 */
+.upprog {
+  position: relative; height: 6px; width: 100%;
+  border-radius: 999px; background: var(--muted); overflow: hidden;
+  flex: 0 0 auto;
+}
+.upprog-fill {
+  height: 100%; width: 0; border-radius: 999px;
+  background: var(--primary); transition: width .25s ease;
+}
+.upprog-meta {
+  /* 居中而不是两端对齐：百分比和已下载/总量放一起居中显示 */
+  display: flex; justify-content: center; align-items: baseline; gap: 10px;
+  margin-top: 7px; font-size: 11.5px; color: var(--faint);
+  font-variant-numeric: tabular-nums;
+  width: 100%; min-height: 17px;
+}
+/* 百分比只换颜色和字重，字号跟前面的已下载大小保持一致（都继承父级 11.5px） */
+.upmeta-pct { color: var(--text); font-weight: 600; }
+/* 准备中：没有进度条，文字在整块 30px 空间里上下正中 */
+.upprog-ready {
+  flex: 1 1 auto;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 11.5px; color: var(--faint);
+}
+.upkeep {
+  margin-top: 10px; font-size: 11.5px; color: var(--faint);
+  /* 固定占位：失败时这行会换文案，避免弹窗高度跳 */
+  min-height: 16px;
+}
 
-/* Update failure bar. Lives in .content rather than inside the update card
-   because an update can be started from anywhere, and a failure that only
-   renders on a settings tab nobody is looking at is not a notification. */
+/* ---------------- update failed (every view) ---------------- */
 .upfail {
-  display: flex; align-items: center; gap: 10px;
-  padding: 10px 12px; margin-bottom: var(--gap);
-  border: 1px solid var(--danger); border-radius: var(--radius);
-  background: var(--danger-soft); color: var(--danger);
-  font-size: 12.5px;
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  padding: 11px 14px; margin-bottom: var(--gap);
+  border: 1px solid color-mix(in srgb, var(--danger) 45%, var(--border));
+  background: color-mix(in srgb, var(--danger) 9%, var(--card));
+  border-radius: var(--radius-lg);
 }
-.upfail-ic { flex: 0 0 auto; display: flex; color: var(--danger); }
-.upfail-ic svg { width: 16px; height: 16px; }
-.upfail-text { min-width: 0; flex: 1 1 auto; overflow-wrap: anywhere; }
-.upfail-x { flex: 0 0 auto; color: var(--danger); }
-.upfail .btn.sm { flex: 0 0 auto; background: transparent; border-color: var(--danger); color: var(--danger); }
+.upfail-ic { flex: 0 0 20px; width: 20px; height: 20px; display: flex; align-items: center; color: var(--danger); }
+.upfail-ic svg { width: 18px; height: 18px; }
+.upfail-text { font-size: 13px; font-weight: 500; min-width: 0; overflow-wrap: anywhere; flex: 1 1 auto; }
 
 /* ---------------- notification event grid ---------------- */
 .evgrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
@@ -972,6 +1019,23 @@ canvas { display: block; width: 100%; height: 100%; }
   .toolbar .seg { flex: 0 0 auto; }
   .chart-wrap { height: 170px; }
   .kv { grid-template-columns: 92px minmax(0, 1fr); gap: 6px 10px; }
+
+  /* 手机端横幅：文字块独占首行，操作按钮沉到第二行 */
+  .upbanner { gap: 8px; padding: 10px 12px; }
+  .upbanner .spacer { display: none; }
+  .upbanner-btn { display: none; }
+  .upbanner-ic { order: 1; }
+  .upbanner-text { order: 2; flex: 1 1 calc(100% - 44px); }
+  .upbanner-text b { font-size: 13px; }
+  .upbanner .btn.primary { order: 3; flex: 1 1 auto; }
+  .upbanner-x { order: 4; }
+
+  .upfail { gap: 8px; padding: 10px 12px; }
+  .upfail .spacer { display: none; }
+  .upfail-ic { order: 1; }
+  .upfail-text { order: 2; flex: 1 1 calc(100% - 32px); font-size: 12.5px; }
+  .upfail .btn { order: 3; flex: 1 1 auto; }
+  .upfail .upbanner-x { order: 4; flex: 0 0 28px; }
 
   /* Touch targets get taller than the desktop 30px: a 30px button is fine
      under a mouse and marginal under a thumb. */

@@ -116,6 +116,8 @@
         updateRollbackReady: false,
         updateSawActive: false,
         updatePeakPct: 0,
+        // 顶部横幅是否还显示：关掉就本次不再提示，与更新页的状态互相独立
+        updateBanner: true,
 
         // ---- maintenance ----
         maint: { ok: true, directory: "", enabled: false, interval_hours: 24,
@@ -928,6 +930,10 @@
         this.updateInstallDetail = "";
       },
 
+      dismissUpdateBanner() {
+        this.updateBanner = false;
+      },
+
       dismissUpdateFail() {
         this.updateFailText = "";
       },
@@ -953,12 +959,34 @@
         }
       },
 
-      /* 一键更新。
+      /* 点「一键更新」先弹站内确认框：下载 + 卸载重装会打断正在用的页面，
+         直接开始等于不给用户反悔的机会。 */
+      installUpdate() {
+        if (this.updateInstalling) return;
+        if (!this.updateInfo || !this.updateInfo.has_update) {
+          this.toast(t("update.upTitle"));
+          return;
+        }
+        const latest = this.updateInfo.latest;
+        this.confirmState = {
+          title: t("update.oneClick"),
+          body: t("update.confirm", { v: latest }),
+          okText: t("update.oneClick"),
+          // 与其它确认框保持同一套按钮层级：破坏性/不可逆的动作走 danger 样式
+          danger: true,
+          ok: async () => {
+            this.confirmState = null;
+            await this.runInstall();
+          },
+        };
+      },
+
+      /* 真正开始安装。
        *
        * 下载发生在 POST 里，所以轮询必须先起来再 await 那个请求，否则整段下载
        * 期间进度条一直停在零。遮罩随后一直留着，因为安装会把这个页面背后的
        * 服务停掉。 */
-      async installUpdate() {
+      async runInstall() {
         if (this.updateInstalling) return;
         this.updateError = "";
         this.updateFailText = "";
@@ -1501,7 +1529,13 @@
         if (tf && ["hour", "day", "week", "month", "year"].indexOf(tf) >= 0) this.timeframe = tf;
       } catch (e) {}
 
-      this.bootstrap(false);
+      this.bootstrap(false).then(() => {
+        // bootstrap 只在服务端缓存里已有结果时才带回 update，全新鲜启动时是空的。
+        // 启动后补一次检查，否则「有新版本」的横幅要等用户先点进设置页才会出现。
+        if (!this.updateInfo || this.updateInfo.checked === undefined) {
+          this.checkUpdate(false);
+        }
+      });
       if (this.view === "settings") {
         this.loadLog();
         if (this.setTab === "maint") this.loadMaint();

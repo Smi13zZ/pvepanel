@@ -6,7 +6,7 @@
 <meta name="color-scheme" content="light dark">
 <title>PVEpanel</title>
 <link rel="icon" href="./images/icon.svg">
-<link rel="stylesheet" href="./style.css?v=26.11.21">
+<link rel="stylesheet" href="./style.css?v=26.11.22">
 </head>
 <body>
 <div id="app" v-cloak>
@@ -89,16 +89,32 @@
 
     <div class="content">
 
+      <!-- ---------- new release banner: on every view until dismissed ---------- -->
+      <div class="upbanner" v-if="updateNew && updateBanner">
+        <span class="upbanner-ic" v-html="ic('spark')"></span>
+        <div class="upbanner-text">
+          <b>{{ t('update.bannerTitle', { latest: updateInfo.latest, current: appVersion }) }}</b>
+          <span>{{ t('update.bannerSub') }}</span>
+        </div>
+        <div class="spacer"></div>
+        <button class="btn sm upbanner-btn" type="button" @click="openUpdateSection">{{ t('update.bannerDetail') }}</button>
+        <button class="btn sm primary" type="button" @click="installUpdate">{{ t('update.oneClick') }}</button>
+        <button class="icon-btn ghost upbanner-x" type="button" :title="t('update.dismiss')"
+                @click="dismissUpdateBanner">
+          <span v-html="ic('close')"></span>
+        </button>
+      </div>
+
       <!-- ---------- 更新失败：任意页面都要能看到 ----------
            从概览页发起更新、失败后用户并不在设置页，而失败提示原先只渲染在设置-更新
            卡片里 —— 结果界面上一个字都没有，看起来像什么都没发生。这一条独立于设置
            页，带「查看详情」直接跳过去，也能单独关掉。 -->
-      <div class="upfail" v-if="updateFailText && !updateInstalling">
-        <span class="upfail-ic" v-html="ic('alert')"></span>
+      <div class="upfail" v-if="updateFailText">
+        <span class="upfail-ic" v-html="ic('close')"></span>
         <div class="upfail-text">{{ updateFailText }}</div>
         <div class="spacer"></div>
         <button class="btn sm" type="button" @click="openUpdateSection">{{ t('update.bannerDetail') }}</button>
-        <button class="icon-btn ghost upfail-x" type="button" :title="t('update.dismissFail')"
+        <button class="icon-btn ghost upbanner-x" type="button" :title="t('update.dismissFail')"
                 @click="dismissUpdateFail">
           <span v-html="ic('close')"></span>
         </button>
@@ -1104,7 +1120,7 @@
     <div class="modal-foot">
       <button class="btn" @click="confirmState = null">{{ t('common.cancel') }}</button>
       <div class="spacer"></div>
-      <button class="btn" :class="confirmState.danger ? 'danger' : 'primary'" @click="confirmState.ok">{{ t('common.confirm') }}</button>
+      <button class="btn" :class="confirmState.danger ? 'danger' : 'primary'" @click="confirmState.ok">{{ confirmState.okText || t('common.confirm') }}</button>
     </div>
   </div>
 </div>
@@ -1155,10 +1171,10 @@
 </div>
 
 <script src="./lib/vue.global.prod.js"></script>
-<script src="./js/i18n.js?v=26.11.21"></script>
-<script src="./js/util.js?v=26.11.21"></script>
-<script src="./js/charts.js?v=26.11.21"></script>
-<script src="./js/api.js?v=26.11.21"></script>
-<script src="./js/app.js?v=26.11.21"></script>
+<script src="./js/i18n.js?v=26.11.22"></script>
+<script src="./js/util.js?v=26.11.22"></script>
+<script src="./js/charts.js?v=26.11.22"></script>
+<script src="./js/api.js?v=26.11.22"></script>
+<script src="./js/app.js?v=26.11.22"></script>
 </body>
 </html>

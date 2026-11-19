@@ -95,8 +95,11 @@ def main():
           "updateFailText" in html and "{{ updateFailText }}" in html)
     check("失败条有「查看详情」跳转", "openUpdateSection" in html)
     check("失败条可以单独关闭", "dismissUpdateFail" in html)
-    check("失败条只在遮罩收起后显示（不叠在升级弹窗上）",
-          'v-if="updateFailText && !updateInstalling"' in html)
+    # 失败条与遮罩互斥由「失败时把 updateInstalling 置回 false」保证，
+    # 条本身不再加条件 —— 多加一个条件只会在状态不同步时让提示整个消失。
+    check("失败条只由 updateFailText 决定显隐",
+          'v-if="updateFailText"' in html)
+    check("失败时遮罩会被收起", "self.updateInstalling = false" in app)
     check("updateFailText 在 app.js 里被赋值",
           "this.updateFailText = this.updateError" in app)
     check("dismissUpdateFail 会清掉它", 'this.updateFailText = ""' in app)
