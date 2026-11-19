@@ -6,7 +6,7 @@
 <meta name="color-scheme" content="light dark">
 <title>PVEpanel</title>
 <link rel="icon" href="./images/icon.svg">
-<link rel="stylesheet" href="./style.css?v=26.11.22">
+<link rel="stylesheet" href="./style.css?v=26.11.23">
 </head>
 <body>
 <div id="app" v-cloak>
@@ -1009,11 +1009,15 @@
                 <tbody>
                   <tr v-for="u in storageUpdates" :key="u.name">
                     <td class="sname">
-                      <div class="mono ellipsis" :title="u.name">{{ u.name }}</div>
-                      <div class="sub">
-                        <span class="chip err" v-if="u.partial">{{ t('storage.partial') }}</span>
-                        <span class="tagcur" v-else-if="storage.current_version && u.name.indexOf(storage.current_version) >= 0">{{ t('storage.inUse') }}</span>
-                        <span class="faint" v-else>{{ FMT.fmtDate(u.t) }}</span>
+                      <div class="pkgrow">
+                        <span class="pkgname mono" :title="u.name">{{ u.name }}</span>
+                        <span class="pkgflag" v-if="u.partial">
+                          <span class="chip err">{{ t('storage.partial') }}</span>
+                        </span>
+                        <span class="pkgflag" v-else-if="storage.current_version && u.name.indexOf(storage.current_version) >= 0">
+                          <span class="tagcur">{{ t('storage.inUse') }}</span>
+                        </span>
+                        <span class="pkgtime" :title="u.t ? FMT.fmtDate(u.t) : ''">{{ u.t ? FMT.fmtDate(u.t) : '—' }}</span>
                       </div>
                     </td>
                     <td class="num mono">{{ FMT.fmtBytes(u.bytes) }}</td>
@@ -1171,10 +1175,10 @@
 </div>
 
 <script src="./lib/vue.global.prod.js"></script>
-<script src="./js/i18n.js?v=26.11.22"></script>
-<script src="./js/util.js?v=26.11.22"></script>
-<script src="./js/charts.js?v=26.11.22"></script>
-<script src="./js/api.js?v=26.11.22"></script>
-<script src="./js/app.js?v=26.11.22"></script>
+<script src="./js/i18n.js?v=26.11.23"></script>
+<script src="./js/util.js?v=26.11.23"></script>
+<script src="./js/charts.js?v=26.11.23"></script>
+<script src="./js/api.js?v=26.11.23"></script>
+<script src="./js/app.js?v=26.11.23"></script>
 </body>
 </html>
