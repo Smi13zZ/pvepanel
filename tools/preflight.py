@@ -49,6 +49,9 @@ def step(title, argv, cwd=None):
 
 step("structure check", [sys.executable, os.path.join(ROOT, "tools", "check_structure.py")])
 step("docs references", [sys.executable, os.path.join(ROOT, "tools", "check_docs.py")])
+# 升级遮罩的阶段收敛：阶段只前进 / attempt 隔离 / total 只增。
+# 这是「更新完卡在遮罩里」的直接成因，纯静态即可判定。
+step("update stage monotonicity", [sys.executable, os.path.join(ROOT, "tools", "check_update_mono.py")])
 step("python compiles", [sys.executable, "-m", "compileall", "-q", SERVER])
 
 # node --check on every front-end script; skip politely when node is absent.

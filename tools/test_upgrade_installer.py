@@ -252,10 +252,13 @@ def test_contract(c):
     # "checking" sits between the click and the first byte: the release lookup
     # happens there and must be reportable, otherwise the bar claims to be
     # downloading while nothing can arrive yet.
+    # 26.11.24 起多一个 verifying：下载完到开始装之间要解包读 manifest，
+    # 那段时间没有总量可测，界面必须能看出「还在做事」。
     c.eq(installer.PHASES,
-         ("idle", "checking", "downloading", "installing", "failed"),
-         "PHASES 五个阶段")
-    c.eq(installer.ACTIVE_PHASES, ("checking", "downloading", "installing"),
+         ("idle", "checking", "downloading", "verifying", "installing", "failed"),
+         "PHASES 六个阶段")
+    c.eq(installer.ACTIVE_PHASES,
+         ("checking", "downloading", "verifying", "installing"),
          "进行中的阶段由 PHASES 推导，不含 idle/failed")
     for fn in ("status", "start", "pick_asset", "validate_fpk", "download",
                "build_script", "reset", "find_previous_fpk", "error_code"):

@@ -112,6 +112,10 @@
         // reports the old reason and closes the overlay while the download is
         // still running.
         updateAttempt: 0,
+        /* 阶段单调性只在同一轮尝试内成立：attempt 变了就整体重置。 */
+        updateMonoAttempt: -1,
+        /* 自动重试刷新超过 10 次后放出的自救按钮 */
+        updateReloadReady: false,
         updateIgnoreAttempt: 0,
         updateRollbackReady: false,
         updateSawActive: false,
@@ -1050,22 +1054,48 @@
          避免进度条回头跳。阶段文案一律本地拼，detail 只在失败时才有意义。 */
       applyUpdateState(st) {
         if (!st) return;
+        /* 三条收敛规则，缺一条界面就会被旧快照打回去：
+           1. 阶段只允许前进（checking < downloading < verifying < installing）
+           2. total 只增不减，且只在 downloading 分支内累积
+           3. 单调性只在同一 attempt 内成立，attempt 变了整体重置 */
+        const ORDER = { checking: 0, downloading: 1, verifying: 2, installing: 3 };
+        const rawPhase = String(st.phase || "");
+        const attempt = typeof st.attempt === "number" ? st.attempt : 0;
+        if (attempt !== this.updateMonoAttempt) {
+          this.updateMonoAttempt = attempt;
+          this.updateProgressDone = 0;
+          this.updateProgressTotal = 0;
+          this.updatePeakPct = 0;
+          this._updateMonoPhase = "";
+        }
+        const prevRank = ORDER[this._updateMonoPhase];
+        const nextRank = ORDER[rawPhase];
+        if (prevRank !== undefined && nextRank !== undefined && nextRank < prevRank) {
+          return;
+        }
+        if (nextRank !== undefined) this._updateMonoPhase = rawPhase;
+
         const done = Number(st.done) || 0;
         const total = Number(st.total) || 0;
         if (done > this.updateProgressDone) this.updateProgressDone = done;
-        if (total > this.updateProgressTotal) this.updateProgressTotal = total;
-        if (typeof st.rollback === "boolean") this.updateRollbackReady = st.rollback;
-        if (st.phase === "checking") {
-          this.updateInstallDetail = t("update.checking");
-        } else if (st.phase === "downloading") {
-          this.updateInstallDetail = t("update.downloading");
-        } else if (st.phase === "installing") {
-          this.updateInstallDetail = t("update.restarting");
-          /* 重启阶段没有可测总量：把 total 清零，进度区退回「准备中」，
-             不假装还有一个百分比在走。 */
+        if (rawPhase === "downloading") {
+          if (total > this.updateProgressTotal) this.updateProgressTotal = total;
+        } else if (rawPhase) {
+          /* 校验/安装阶段没有可测总量：清零让进度区退回「准备中」，
+             不假装还有一个百分比在走。这是有意为之，不算「减少」。 */
           this.updateProgressTotal = 0;
         }
-        if (st.phase === "downloading" || st.phase === "installing") {
+        if (typeof st.rollback === "boolean") this.updateRollbackReady = st.rollback;
+        if (rawPhase === "checking") {
+          this.updateInstallDetail = t("update.checking");
+        } else if (rawPhase === "downloading") {
+          this.updateInstallDetail = t("update.downloading");
+        } else if (rawPhase === "verifying") {
+          this.updateInstallDetail = t("update.verifying");
+        } else if (rawPhase === "installing") {
+          this.updateInstallDetail = t("update.restarting");
+        }
+        if (rawPhase === "downloading" || rawPhase === "verifying" || rawPhase === "installing") {
           this.updateSawActive = true;
         }
       },
@@ -1147,8 +1177,27 @@
         this.toast(t("update.done", { v: version || "" }));
         setTimeout(function () {
           self.updateInstalling = false;
-          location.reload();
+          self.reloadWhenBack(0);
         }, 1500);
+      },
+
+      /* 装完后的自动刷新要等面板真的回来再刷。
+         升级脚本是「停服务 → 卸载 → 安装 → 启动」，成功结论出现的那一刻服务
+         往往正要停：这时立刻 location.reload() 等于主动撞进离线空窗。 */
+      reloadWhenBack(attempt) {
+        const self = this;
+        const n = Number(attempt) || 0;
+        API.updateStatus().then(function () {
+          try { location.reload(); } catch (e) { /* ignore */ }
+        }).catch(function () {
+          if (n >= 10) self.updateReloadReady = true;
+          if (n >= 100) { try { location.reload(); } catch (e) { /* ignore */ } return; }
+          setTimeout(function () { self.reloadWhenBack(n + 1); }, 800);
+        });
+      },
+
+      reloadNow() {
+        try { location.reload(); } catch (e) { /* ignore */ }
       },
 
       /* 留在遮罩上直到面板报告的版本与开始时不同。重装期间接口本来就会消失，

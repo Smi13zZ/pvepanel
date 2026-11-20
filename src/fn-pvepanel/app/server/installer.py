@@ -49,7 +49,7 @@ APP_NAME = "fn-pvepanel"
 # reporting that as a download shows a progress bar that cannot move until the
 # round trip is over. The browser renders "checking" as "preparing", which is
 # the truth.
-PHASES = ("idle", "checking", "downloading", "installing", "failed")
+PHASES = ("idle", "checking", "downloading", "verifying", "installing", "failed")
 
 #: Phases in which a second click must be refused. Derived from PHASES so a new
 #: phase cannot be added above and silently become re-entrant.
@@ -826,6 +826,9 @@ def start(info, current, port, var_dir, log=None, *, prev_fpk="",
         _emit("update: downloaded %d bytes" % os.path.getsize(dest))
         # Verified before anything is uninstalled, and checked against the
         # version the release claimed so a stale asset cannot be installed.
+        # 校验单独一阶段：解包读 manifest 要时间，界面在这段时间没有总量
+        # 可测，不置这个阶段下载 100% 后会静止几秒，看起来像卡住。
+        _set("verifying", latest, "")
         validate_fpk(dest, app_name=app_name, appcenter=appcenter,
                      expect_version=latest)
     except Exception as exc:
