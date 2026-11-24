@@ -467,6 +467,8 @@
       "common.scrollHint": "表格可左右滑动查看更多列",
       "common.chartEmpty": "暂无曲线数据",
       "common.loading": "加载中…",
+      /* 网络层的兜底文案：fetch 自己抛的是浏览器的英文串，不能直接显示 */
+      "err.network": "网络不可达，请检查设备与目标的连接",
     },
 
     en: {
@@ -927,6 +929,7 @@
       "common.scrollHint": "Scroll the table sideways for more columns",
       "common.chartEmpty": "No history data yet",
       "common.loading": "Loading…",
+      "err.network": "Network unreachable — check the device's connectivity",
     },
   };
 

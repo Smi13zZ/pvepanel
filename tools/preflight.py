@@ -52,6 +52,9 @@ step("docs references", [sys.executable, os.path.join(ROOT, "tools", "check_docs
 # 升级遮罩的阶段收敛：阶段只前进 / attempt 隔离 / total 只增。
 # 这是「更新完卡在遮罩里」的直接成因，纯静态即可判定。
 step("update stage monotonicity", [sys.executable, os.path.join(ROOT, "tools", "check_update_mono.py")])
+# computed 当属性、methods 必须加括号。写错时界面渲染成 `function () { [native code] }`，
+# 静态检查完全看不出来（eMule 实际踩过一次）。
+step("template binding", [sys.executable, os.path.join(ROOT, "tools", "check_tpl_binding.py")])
 step("python compiles", [sys.executable, "-m", "compileall", "-q", SERVER])
 
 # node --check on every front-end script; skip politely when node is absent.
@@ -75,8 +78,14 @@ else:
         FAILS.append("front-end syntax")
 
 for name in ("test_bootstrap", "test_maint", "test_upgrade_installer",
-             "test_notify", "test_notify_log", "test_storage", "test_update"):
+             "test_notify", "test_notify_log", "test_storage", "test_update",
+             "test_clean_log"):
     step(name, [sys.executable, os.path.join(ROOT, "tools", name + ".py")])
+
+# Release 正文的 Markdown 渲染器：渲染效果 + 注入防护，两类断言缺一不可。
+# 正文是外网拉回来的不可信内容，安全那条比排版那条更重要。
+if node:
+    step("markdown renderer", [node, os.path.join(ROOT, "tools", "test_md.js")])
 
 # Template tags: an unbalanced one reparents the rest of the settings page in
 # the browser, which only shows up as a half-missing page on a device.

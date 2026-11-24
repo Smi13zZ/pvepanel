@@ -6,7 +6,7 @@
 <meta name="color-scheme" content="light dark">
 <title>PVEpanel</title>
 <link rel="icon" href="./images/icon.svg">
-<link rel="stylesheet" href="./style.css?v=26.11.24">
+<link rel="stylesheet" href="./style.css?v=26.11.25">
 </head>
 <body>
 <div id="app" v-cloak>
@@ -795,6 +795,13 @@
               </div>
             </div>
             <div class="hint" style="color:var(--danger);margin-top:10px" v-if="updateError">{{ updateError }}</div>
+            <!-- 安装日志：只在失败时展开。升级途中这堆输出用户看不懂也帮不上忙，
+                 失败时它是唯一能说清卡在哪一步的证据。服务端已滤掉 appcenter-cli
+                 的转圈帧，只留 === 与 [Info] 行。 -->
+            <div class="upinstalllog" v-if="updateError && updateInstallLog">
+              <div class="upinstalllog-head">{{ t('update.installLog') }}</div>
+              <pre class="upinstalllog-body">{{ updateInstallLog }}</pre>
+            </div>
             <!-- 没有回滚包时如实说清楚：继续承诺「会自动回滚」是在骗人。 -->
             <div class="hint" style="margin-top:10px" v-if="updateNew && !updateRollbackReady">
               {{ t('update.noRollback') }}
@@ -802,7 +809,9 @@
 
             <div class="sep"></div>
             <h3>{{ t('update.notes') }}</h3>
-            <div class="relnotes" v-if="updateInfo.notes">{{ updateInfo.notes }}</div>
+            <!-- Release 正文是 Markdown。用 v-html 渲染，靠 MD.render 先整体转义、
+                 再套标签来保证安全；绝不能反过来（先渲染再清理会漏掉注入）。 -->
+            <div class="relnotes md" v-if="updateNotesHtml" v-html="updateNotesHtml"></div>
             <div class="faint" v-else>{{ t('update.noNotes') }}</div>
 
             <div class="kv" style="margin-top:14px">
@@ -1163,7 +1172,12 @@
           <span class="upmeta-pct">{{ updatePeakPct }}%</span>
         </div>
       </template>
-      <div class="upprog-ready" v-else>{{ t('update.progressUnknown') }}</div>
+      <!-- 没有可测总量：不画百分比，也不写「准备中」—— 上面那行阶段文字
+           已经在说具体动作了，这里再写一句会和它打架。放一条来回流动的
+           不确定条，与进度条占同一块固定高度，切阶段时卡片不跳。 -->
+      <div class="upprog indeterminate" v-else>
+        <div class="upprog-flow"></div>
+      </div>
     </div>
     <div class="upkeep">{{ t('update.keepOpen') }}</div>
     <!-- 自动重试太久才出现：浏览器若已停在断网错误页上，自动重试回不来，
@@ -1180,10 +1194,11 @@
 </div>
 
 <script src="./lib/vue.global.prod.js"></script>
-<script src="./js/i18n.js?v=26.11.24"></script>
-<script src="./js/util.js?v=26.11.24"></script>
-<script src="./js/charts.js?v=26.11.24"></script>
-<script src="./js/api.js?v=26.11.24"></script>
-<script src="./js/app.js?v=26.11.24"></script>
+<script src="./js/i18n.js?v=26.11.25"></script>
+<script src="./js/util.js?v=26.11.25"></script>
+<script src="./js/charts.js?v=26.11.25"></script>
+<script src="./js/api.js?v=26.11.25"></script>
+<script src="./js/md.js?v=26.11.25"></script>
+<script src="./js/app.js?v=26.11.25"></script>
 </body>
 </html>

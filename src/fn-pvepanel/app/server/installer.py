@@ -262,8 +262,35 @@ def _tail(path, lines=LOG_TAIL_LINES):
             text = f.read()
     except OSError:
         return ""
-    rows = text.strip().splitlines()
-    return "\n".join(rows[-lines:])
+    return "\n".join(_clean_log(text)[-lines:])
+
+
+#: appcenter-cli 把终端转圈动画直接写进重定向的日志：`\r\ stopping.\r| stopping.`
+#: 这类行。`str.splitlines()` 会把每个 `\r` 当换行，于是一条动画在界面上变成
+#: 几十行阶梯状的「stopping...」，把真正有用的 `[Info]` 行挤出窗口。
+#: 这里只保留能读的行 —— 转圈帧与纯点帧整行丢掉。
+_SPINNER_WORDS = frozenset((
+    "stopping", "installing", "starting", "uninstalling", "verifying files",
+    "verifying", "downloading", "extracting", "compressing", "removing",
+    "cleaning", "unpacking", "upgrading",
+))
+
+
+def _clean_log(text):
+    """把 appcenter-cli 的转圈帧滤掉，只留真正能读的日志行。"""
+    out = []
+    for row in (text or "").splitlines():
+        s = row.strip()
+        if not s:
+            continue
+        # 纯符号帧：`.`、`..`、`\ ...`
+        if set(s) <= set("-\\|/. \t"):
+            continue
+        word = s.lstrip("-\\|/").strip().rstrip(".").strip().lower()
+        if word in _SPINNER_WORDS:
+            continue
+        out.append(s)
+    return out
 
 
 def status():

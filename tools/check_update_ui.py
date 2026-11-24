@@ -74,6 +74,7 @@ def main():
     zh, en = i18n_tables()
     app = read(os.path.join(WEB, "js", "app.js"))
     html = read(os.path.join(WEB, "index.html"))
+    css = read(os.path.join(WEB, "style.css"))
     inst = read(os.path.join(SERVER, "installer.py"))
 
     print("[阶段：服务端与界面用同一套名字]")
@@ -141,13 +142,20 @@ def main():
     check("成功帧不动字节计数器",
           "updateProgressDone" not in body and "updateProgressTotal" not in body,
           body[:200])
-    check("安装阶段把 total 清零（退回准备中）",
+    check("安装阶段把 total 清零（没有可测总量）",
           "this.updateProgressTotal = 0" in app)
     check("遮罩用真实 done/total 渲染字节",
           "FMT.fmtBytes(updateProgressDone)" in html
           and "FMT.fmtBytes(updateProgressTotal)" in html)
-    check("没有总量时显示「准备中…」",
-          "update.progressUnknown" in html or "progressUnknown" in html)
+    # 没有可测总量时不再显示静态的「准备中…」：它看不出「还在动」，而且与
+    # 上方阶段文字（「安装包已就绪，正在重启服务…」）语义打架。改成一条
+    # 来回流动的条，颜色取 var(--primary) 以便夜间模式自动反色。
+    check("没有总量时渲染不确定流动条",
+          "upprog indeterminate" in html and "upprog-flow" in html)
+    check("不确定态样式在 CSS 里",
+          ".upprog.indeterminate" in css and "@keyframes upprogFlow" in css)
+    check("不确定条用主题变量（夜间自动反色）",
+          "background: var(--primary);" in css)
 
     print("[回滚包：找不到就如实说]")
     check("服务端 status 下发 rollback 可用性",

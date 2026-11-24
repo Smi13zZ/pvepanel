@@ -101,6 +101,9 @@
         updateProgressTotal: 0,
         // Shown as red text inside the update card...
         updateError: "",
+        /* 安装日志尾部：服务端每次轮询都带着。只在失败时展示 —— 升级途中
+           这堆输出用户看不懂也帮不上忙，失败时是唯一能说清卡在哪步的证据。 */
+        updateInstallLog: "",
         // ...and this one as a bar on every page: an update started from the
         // dashboard failing while the operator is elsewhere must not be silent.
         updateFailText: "",
@@ -241,6 +244,17 @@
       },
       updateProgressKnown() {
         return this.updateProgressTotal > 0;
+      },
+      /* Release 正文是 Markdown，渲染成 HTML 再交给 v-html。MD.render 会先把
+         整段转义再套标签，所以正文里塞 <script> 或 javascript: 链接也执行不了。
+         md.js 没加载上时退回纯文本：宁可排版丢失，也不能把原文当 HTML 插入。 */
+      updateNotesHtml() {
+        const raw = (this.updateInfo && this.updateInfo.notes) || "";
+        if (!raw) return "";
+        if (window.MD) return window.MD.render(raw);
+        return String(raw)
+          .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+          .replace(/\r?\n/g, "<br>");
       },
       /* The server reports an instantaneous snapshot, so the computed value can
          go backwards between two polls (a retry restarts the counter). The
@@ -553,6 +567,23 @@
         this.$nextTick(() => { this.drawNodeChart(); this.drawRings(); });
       },
 
+      /* 网络层异常的文案：fetch 抛出来的是浏览器自己的英文串（「Failed to
+         fetch」/「NetworkError when attempting to fetch resource」），直接丢给
+         用户既不是中文也看不出跟谁有关。升级期间面板被卸载重装，这类失败属于
+         计划内，先静默；其余情况统一说「网络不可达」，真的原因留在控制台。 */
+      netErrText(e) {
+        if (e && e.code) return e.message || t("err.network");
+        return t("err.network");
+      },
+
+      /* 升级遮罩存在时不弹轮询错误：这期间的失败是 uninstall→install 的空窗，
+         不是故障。原先每 5–10 秒的 snapshot 轮询会在右下角连弹十条
+         「Failed to fetch」，把遮罩里唯一有用的那句话淹掉。 */
+      quietPollError(e) {
+        if (this.updateInstalling) return;
+        this.toast(this.netErrText(e), "err");
+      },
+
       toast(msg, tone) {
         const item = { msg: msg, tone: tone || "" };
         this.toasts.push(item);
@@ -580,13 +611,16 @@
           // something else (a timeframe click, a resize) happened to redraw it.
           this.$nextTick(() => { this.drawNodeChart(); this.drawRings(); });
         } catch (e) {
-          this.toast(String(e.message || e), "err");
+          this.quietPollError(e);
           this.loaded = true;
         }
       },
 
       async refresh(force) {
         if (this.busy) return;
+        /* 升级期间面板正在被卸载重装，这些轮询注定失败。直接不发起，
+           免得把遮罩底下的页面刷成错误态、还往右下角堆提示。 */
+        if (this.updateInstalling) return;
         this.busy = true;
         try {
           const r = force
@@ -595,7 +629,7 @@
                 (this.activeId ? "&server=" + encodeURIComponent(this.activeId) : ""));
           this.applySnapshot(r.snapshot || r);
         } catch (e) {
-          this.toast(String(e.message || e), "err");
+          this.quietPollError(e);
         } finally {
           this.busy = false;
           this.$nextTick(() => { this.drawNodeChart(); this.drawRings(); });
@@ -635,7 +669,6 @@
         const iv = Math.max(5, Number(this.settings.refresh) || 10) * 1000;
         this.timer = setInterval(() => this.refresh(false), iv);
       },
-
       stopPolling() {
         if (this.timer) { clearInterval(this.timer); this.timer = null; }
       },
@@ -994,6 +1027,7 @@
         if (this.updateInstalling) return;
         this.updateError = "";
         this.updateFailText = "";
+        this.updateInstallLog = "";
         this.updateInstallVersion = (this.updateInfo && this.updateInfo.latest) || "";
         this.updateInstallDetail = t("update.checking");
         this.updateProgressDone = 0;
@@ -1028,15 +1062,17 @@
           }
           if (typeof r.attempt === "number") this.updateAttempt = r.attempt;
           this.updateRollbackReady = !!r.rollback;
-          this.toast(t("update.installStarted", { v: r.version || this.updateInstallVersion }));
-          this.waitForUpgrade();
+          /* 这里不再另起一条 /api/health 轮询：遮罩本身已经在跟 update_status，
+             它带着 attempt / phase / current，版本一变化就会收尾。两个通道同时
+             写同一个 updateInstallDetail，谁最后写谁显示 —— 服务停掉的瞬间
+             health 那条把「安装包已就绪」覆盖成「准备中…」，看起来像卡住了。 */
         } catch (e) {
           this.updateInstalling = false;
           this.stopUpdatePolling();
           if (e && e.code !== undefined) {
             this.failInstall(e.code, e.arg, e.message);
           } else {
-            this.failInstall("", "", String((e && e.message) || e));
+            this.failInstall("", "", this.netErrText(e));
           }
           this.toast(this.updateError, "err");
         }
@@ -1113,6 +1149,8 @@
               return;
             }
             if (typeof st.attempt === "number") self.updateAttempt = st.attempt;
+            /* 安装日志尾部每次都收下，但只在失败时展示（模板按 updateError 判断）。 */
+            if (typeof st.log === "string") self.updateInstallLog = st.log;
             if (st.phase === "failed") {
               /* 服务端不会自己回 idle。编号没变就说明这条死信属于上一轮，
                  等这一轮真正开始。 */
@@ -1165,16 +1203,18 @@
         }
       },
 
-      /* 装好了：提示一行「已更新到 v{v}」，1.5 秒后整体重新加载。
+      /* 装好了：遮罩里的阶段文字换成完成结论，1.5 秒后整体重新加载。
          面板在升级过程中被卸载重装，前端内存状态（版本号、设置、路由）都还是
-         旧的，只刷新数据不够。 */
+         旧的，只刷新数据不够。
+
+         这里不再弹 toast：遮罩上那行已经把「已更新到 vX，正在刷新…」写全了，
+         右下角再飘一条同样的话是重复，而且遮罩一关它就失去上下文。 */
       finishUpdate(version) {
         const self = this;
         /* 这里的两个计数器是字节数，不是百分比：写 100/100 会让界面显示成
            「100 B / 100 B」。下载结束后真实总量本来就在，保持不动；下载阶段没
            拿到总量的情况下 total 就是 0，进度区退回「准备中」，不编数字。 */
         this.updateInstallDetail = t("update.done", { v: version || "" });
-        this.toast(t("update.done", { v: version || "" }));
         setTimeout(function () {
           self.updateInstalling = false;
           self.reloadWhenBack(0);
@@ -1200,32 +1240,6 @@
         try { location.reload(); } catch (e) { /* ignore */ }
       },
 
-      /* 留在遮罩上直到面板报告的版本与开始时不同。重装期间接口本来就会消失，
-         失败属于计划内，不能因此提前结束等待。 */
-      async waitForUpgrade() {
-        this.updateInstallDetail = t("update.restarting");
-        for (let i = 0; i < 240; i++) {
-          await new Promise((r) => setTimeout(r, 1500));
-          try {
-            const h = await fetch("./api/health", { cache: "no-store" }).then((r) => r.json());
-            const v = (h && h.version) || "";
-            if (v && v !== this.updateBaseline && v !== "0.0.0") {
-              this.stopUpdatePolling();
-              this.finishUpdate(v);
-              return;
-            }
-            this.updateInstallDetail = t("update.restarting");
-          } catch (e) {
-            // uninstall→install 之间服务不在：这是计划，不是失败
-            this.updateInstallDetail = t("update.progressUnknown");
-          }
-        }
-        // 不能让操作者对着一个冻住的遮罩
-        this.updateInstalling = false;
-        this.stopUpdatePolling();
-        this.failInstall("", "", t("update.installTimeout"));
-      },
-
       // ---- maintenance ----
 
       async loadMaint() {
@@ -1237,7 +1251,7 @@
           this.autoForm.auto_backup_interval_hours = Number(this.maint.interval_hours) || 24;
           this.autoForm.auto_backup_retention_days = Number(this.maint.retention_days) || 7;
         } catch (e) {
-          this.toast(String(e.message || e), "err");
+          this.quietPollError(e);
         }
       },
 
