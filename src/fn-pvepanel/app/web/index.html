@@ -6,7 +6,7 @@
 <meta name="color-scheme" content="light dark">
 <title>PVEpanel</title>
 <link rel="icon" href="./images/icon.svg">
-<link rel="stylesheet" href="./style.css?v=26.11.27">
+<link rel="stylesheet" href="./style.css?v=26.11.28">
 </head>
 <body>
 <div id="app" v-cloak>
@@ -655,51 +655,58 @@
         <!-- ---- notifications ---- -->
         <template v-if="setTab === 'notify'">
           <div class="card">
-            <div class="card-head"><h3>{{ t('set.notify') }}</h3><div class="spacer"></div>
-              <button class="btn sm primary" @click="openChannelForm(null)">{{ t('set.notifyAdd') }}</button>
-            </div>
-            <div class="field">
+            <div class="card-head"><h3>{{ t('set.notifyEvents') }}</h3></div>
+            <div class="swrow">
+              <div class="swtext">
+                <div class="swname">{{ t('set.notifyEnable') }}</div>
+                <div class="hint">{{ t('set.notifyEnableHint') }}</div>
+              </div>
               <label class="switch">
                 <input type="checkbox" v-model="settings.notify_enabled">
-                <span>{{ t('set.notifyEnable') }}</span>
               </label>
             </div>
-            <div class="alerts" v-if="channels.length" style="margin-top:8px">
-              <div class="alert" v-for="ch in channels" :key="ch.id" style="border-color:var(--border)">
-                <span class="ic" v-html="ic('bell')"></span>
-                <div class="txt" style="flex:1;min-width:0">
-                  <b>{{ ch.name || chTypeLabel(ch.type) }}</b>
-                  <span class="d" style="display:block">{{ chTypeLabel(ch.type) }}</span>
-                </div>
-                <div class="row-acts">
-                  <button class="btn sm" @click="testChannel(ch)" :disabled="testing === ch.id">
-                    {{ testing === ch.id ? t('set.notifyTesting') : t('set.notifyTest') }}
-                  </button>
-                  <button class="btn sm" @click="openChannelForm(ch)">{{ t('set.edit') }}</button>
-                  <button class="btn sm danger" @click="removeChannel(ch)">{{ t('set.delete') }}</button>
-                </div>
+            <div class="swrow" v-for="(on, key) in settings.notify_events" :key="key">
+              <div class="swtext">
+                <div class="swname">{{ t('ev.' + key) }}</div>
+                <div class="hint">{{ t('ev.' + key + '.d') }}</div>
               </div>
-            </div>
-            <div class="empty" v-else style="padding:20px">
-              <h3>{{ t('set.notifyEmpty') }}</h3>
-              <p>{{ t('set.notifyEmptySub') }}</p>
-            </div>
-          </div>
-
-          <div class="card" style="margin-top:var(--gap)">
-            <div class="card-head"><h3>{{ t('set.notifyEvents') }}</h3></div>
-            <div class="evgrid">
-              <label class="evrow" v-for="(on, key) in settings.notify_events" :key="key">
+              <label class="switch">
                 <input type="checkbox" v-model="settings.notify_events[key]">
-                <div class="evtext">
-                  <b>{{ t('ev.' + key) }}</b>
-                  <span class="d">{{ t('ev.' + key + '.d') }}</span>
-                </div>
               </label>
             </div>
             <button class="btn primary" @click="saveSettings" :disabled="saving" style="margin-top:12px">
               {{ saving ? t('set.saving') : t('set.save') }}
             </button>
+          </div>
+
+          <div class="card" style="margin-top:var(--gap)">
+            <div class="card-head">
+              <h3>{{ t('set.notifyChannels') }}</h3>
+              <div class="spacer"></div>
+              <button class="btn sm primary" type="button" @click="openChannelForm(null)">
+                <span class="ic" v-html="ic('plus')"></span>{{ t('set.notifyAdd') }}
+              </button>
+            </div>
+            <div class="empty" v-if="!channels.length">
+              <h3>{{ t('set.notifyEmpty') }}</h3>
+              <p>{{ t('set.notifyEmptySub') }}</p>
+            </div>
+            <div class="chlist" v-else>
+              <div class="chrow" v-for="ch in channels" :key="ch.id">
+                <span class="chico" v-html="ic('bell')"></span>
+                <div class="chin">
+                  <div class="chname ellipsis">{{ ch.name || chTypeLabel(ch.type) }}</div>
+                  <div class="chmeta">{{ chTypeLabel(ch.type) }} · {{ t('set.notifyStateOn') }}</div>
+                </div>
+                <div class="spacer"></div>
+                <button class="btn sm" type="button" @click="testChannel(ch)" :disabled="testing === ch.id">
+                  {{ testing === ch.id ? t('set.notifyTesting') : t('set.notifyTest') }}
+                </button>
+                <button class="btn sm" type="button" @click="openChannelForm(ch)">{{ t('set.editChannel') }}</button>
+                <button class="btn sm danger" type="button" @click="removeChannel(ch)">{{ t('set.delete') }}</button>
+              </div>
+            </div>
+            <div class="hint" style="margin-top:12px">{{ t('set.notifyChannelHint') }}</div>
           </div>
 
           <!-- delivery records: one row per push attempt -->
@@ -1194,11 +1201,11 @@
 </div>
 
 <script src="./lib/vue.global.prod.js"></script>
-<script src="./js/i18n.js?v=26.11.27"></script>
-<script src="./js/util.js?v=26.11.27"></script>
-<script src="./js/charts.js?v=26.11.27"></script>
-<script src="./js/api.js?v=26.11.27"></script>
-<script src="./js/md.js?v=26.11.27"></script>
-<script src="./js/app.js?v=26.11.27"></script>
+<script src="./js/i18n.js?v=26.11.28"></script>
+<script src="./js/util.js?v=26.11.28"></script>
+<script src="./js/charts.js?v=26.11.28"></script>
+<script src="./js/api.js?v=26.11.28"></script>
+<script src="./js/md.js?v=26.11.28"></script>
+<script src="./js/app.js?v=26.11.28"></script>
 </body>
 </html>

@@ -200,6 +200,90 @@ def check_indeterminate_and_verline(css):
 
 
     fails.extend(check_app_shell(css))
+    fails.extend(check_notify_section_order())
+
+    return fails
+
+
+def check_notify_section_order():
+    """通知区的结构：通知（事件开关）→ 通知渠道 → 投递记录。
+
+    用户明确要求过这个顺序和形态，回退会立刻可见，所以锁死：
+      1. 第一张卡是「通知」，事件用整行开关（swrow），不是两列勾选网格
+      2. 第二张卡是「通知渠道」，必须出现在投递记录之前
+      3. 通道行用 chrow（圆形图标位 + 名称/元信息 + 三个按钮）
+      4. 「通知渠道」那张卡必须带「添加通道」按钮
+    """
+    fails = []
+    web = WEB
+    html_path = os.path.join(web, "index.html")
+    css_path = os.path.join(web, "style.css")
+    if not os.path.isfile(html_path):
+        return ["找不到 index.html，无法核对通知区结构"]
+    html = io.open(html_path, encoding="utf-8", errors="replace").read()
+    css = (io.open(css_path, encoding="utf-8", errors="replace").read()
+           if os.path.isfile(css_path) else "")
+
+    # 只在通知分区里判断，别把别的分区的 card 算进来
+    start = html.find("setTab === 'notify'")
+    end = html.find("setTab === 'update'")
+    if start < 0 or end < start:
+        return ["找不到通知分区（setTab === 'notify' 到 update 之间的模板）"]
+    seg = html[start:end]
+
+    i_events = seg.find("t('set.notifyEvents')")
+    i_channels = seg.find("t('set.notifyChannels')")
+    i_log = seg.find("t('notifyLog.title')")
+
+    if i_events < 0:
+        fails.append("通知分区缺少事件卡（set.notifyEvents）")
+    if i_channels < 0:
+        fails.append("通知分区缺少「通知渠道」卡（set.notifyChannels）")
+    if i_log < 0:
+        fails.append("通知分区缺少投递记录卡（notifyLog.title）")
+    if i_events >= 0 and i_channels >= 0 and i_log >= 0:
+        if not (i_events < i_channels < i_log):
+            fails.append("通知区卡片顺序不对（应为 通知 → 通知渠道 → 投递记录）")
+
+    # 事件必须是整行开关，不能退回两列勾选网格
+    if 'class="evgrid"' in seg:
+        fails.append("事件又用回两列勾选网格了（应为整行开关 swrow）")
+    if 'class="swrow"' not in seg:
+        fails.append("事件没有用整行开关（swrow）")
+
+    # 通道行必须是 chrow，且带圆形图标位
+    if 'class="chrow"' not in seg:
+        fails.append("通道行没用 chrow（应为圆形图标 + 名称 + 按钮）")
+    if 'class="chico"' not in seg:
+        fails.append("通道行缺少 chico 圆形图标位")
+
+    # 「通知渠道」卡要有添加按钮
+    if i_channels >= 0:
+        tail = seg[i_channels:i_channels + 700]
+        if "set.notifyAdd" not in tail:
+            fails.append("「通知渠道」卡缺少添加通道按钮")
+
+    # 样式必须存在（否则结构对了也是一团乱）。
+    # 注意不能只判「选择器出现过」：移动端 @media 里也有 `.chico { order: 1 }`，
+    # 主规则被删掉时那条还留着，断言照样通过 —— 变异测试抓过这个洞。
+    # 所以每个类都要有一条含实质声明的规则。
+    REQUIRED = {
+        ".swrow": r"border-bottom|padding",
+        ".swtext": r"flex|min-width",
+        ".swname": r"font-size|font-weight",
+        ".chlist": r"flex-direction|gap",
+        ".chrow": r"padding|border-radius",
+        ".chico": r"width|height|border-radius",
+        ".chname": r"font-size|font-weight",
+        ".chmeta": r"font-size|color",
+    }
+    for cls, need in REQUIRED.items():
+        rules = re.findall(re.escape(cls) + r"\s*\{([^}]*)\}", css)
+        if not rules:
+            fails.append("style.css 缺少 %s 规则（通知卡样式不全）" % cls)
+        elif not any(re.search(need, b) for b in rules):
+            fails.append("style.css 的 %s 规则没有实质声明（可能只剩移动端覆盖）"
+                         % cls)
 
     return fails
 

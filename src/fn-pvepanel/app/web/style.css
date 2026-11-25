@@ -1079,7 +1079,54 @@ canvas { display: block; width: 100%; height: 100%; }
   .stkv { grid-template-columns: 56px 120px 56px minmax(0, 1fr); }
 }
 
+
+/* ---------------------------------------------------------------- 通知卡 --- */
+/* 设置页通知区的两套行：开关行（swrow）与通道行（chrow）。
+   开关行右侧对齐一枚开关，标题在上、说明在下；窄屏下说明会自动换行，
+   开关始终贴右边，不跟着文字一起缩。 */
+
+.swrow {
+  display: flex; align-items: center; gap: 14px;
+  padding: 12px 0; border-bottom: 1px solid var(--border-soft);
+}
+
+.swrow:last-child { border-bottom: 0; padding-bottom: 2px; }
+
+.swtext { min-width: 0; flex: 1; }
+
+.swname { font-size: 13.5px; font-weight: 500; }
+
+.swrow .hint { margin-top: 2px; }
+
+.swrow .switch { margin-left: auto; flex: 0 0 auto; }
+
+.chlist { display: flex; flex-direction: column; gap: 8px; }
+
+.chrow {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius);
+}
+
+.chico {
+  flex: 0 0 30px; width: 30px; height: 30px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--muted); color: var(--dim);
+}
+
+.chin { min-width: 0; }
+
+.chname { font-size: 13.5px; font-weight: 600; }
+
+.chmeta { font-size: 12px; color: var(--faint); margin-top: 1px; }
+
 @media (max-width: 640px) {
+  /* 通道行在窄屏：图标 + 名称占一行，三个按钮各占一行宽度、均分 */
+  .chrow { gap: 6px; }
+  .chrow .spacer { display: none; }
+  .chico { order: 1; }
+  .chin { order: 2; flex: 1 1 calc(100% - 46px); }
+  .chrow .btn { order: 3; flex: 1 1 auto; }
+
   .content { padding: 12px 10px calc(28px + env(safe-area-inset-bottom)); }
   .grid.c1, .grid.c2, .grid.c3 { grid-template-columns: minmax(0, 1fr); }
   .grid.c4 { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
