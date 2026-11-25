@@ -6,7 +6,7 @@
 <meta name="color-scheme" content="light dark">
 <title>PVEpanel</title>
 <link rel="icon" href="./images/icon.svg">
-<link rel="stylesheet" href="./style.css?v=26.11.26">
+<link rel="stylesheet" href="./style.css?v=26.11.27">
 </head>
 <body>
 <div id="app" v-cloak>
@@ -38,7 +38,7 @@
         </button>
       </div>
       <div class="ver-line" :title="'PVEpanel v' + appVersion">
-        <span class="ic" style="width:14px;height:14px;display:flex;align-items:center;justify-content:center" v-html="ic('globe')"></span>
+        <span class="ic" v-html="ic('globe')"></span>
         <span class="mono">v{{ appVersion }}<template v-if="pveVersion"> · PVE {{ pveVersion }}</template></span>
       </div>
       <button class="icon-btn wide ghost collapse-btn" @click="collapsed = !collapsed"
@@ -1194,11 +1194,11 @@
 </div>
 
 <script src="./lib/vue.global.prod.js"></script>
-<script src="./js/i18n.js?v=26.11.26"></script>
-<script src="./js/util.js?v=26.11.26"></script>
-<script src="./js/charts.js?v=26.11.26"></script>
-<script src="./js/api.js?v=26.11.26"></script>
-<script src="./js/md.js?v=26.11.26"></script>
-<script src="./js/app.js?v=26.11.26"></script>
+<script src="./js/i18n.js?v=26.11.27"></script>
+<script src="./js/util.js?v=26.11.27"></script>
+<script src="./js/charts.js?v=26.11.27"></script>
+<script src="./js/api.js?v=26.11.27"></script>
+<script src="./js/md.js?v=26.11.27"></script>
+<script src="./js/app.js?v=26.11.27"></script>
 </body>
 </html>
