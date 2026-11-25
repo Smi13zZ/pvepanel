@@ -229,7 +229,7 @@
       "update.current": "当前版本",
       "update.latest": "最新版本",
       "update.check": "检查更新",
-      "update.checking": "检查中…",
+      "update.checking": "正在检查…",
       "update.oneClick": "一键更新",
       "update.installing": "正在更新…",
       "update.installingTitle": "正在更新到 v{v}",
