@@ -201,6 +201,51 @@ def check_indeterminate_and_verline(css):
 
     fails.extend(check_app_shell(css))
     fails.extend(check_notify_section_order())
+    fails.extend(check_notify_autosave())
+
+    return fails
+
+
+def check_notify_autosave():
+    """通知区的开关必须「一勾就存」，那张卡不能有保存按钮。
+
+    这是用户实际报过的故障：开关用 v-model 只改本地值，页面看着勾上了、
+    后端仍是 false，推送永远不会发生，而且界面上完全看不出问题。
+
+    判据：
+      1. 启用开关与事件开关都绑 @change（不是 v-model）
+      2. app.js 里两个保存方法存在
+      3. 通知卡里没有「保存」主按钮（有了即时保存就不该再要一个）
+    """
+    fails = []
+    web = WEB
+    html_p = os.path.join(web, "index.html")
+    js_p = os.path.join(web, "js", "app.js")
+    if not os.path.isfile(html_p) or not os.path.isfile(js_p):
+        return ["找不到 index.html / app.js，无法核对通知开关"]
+    html = io.open(html_p, encoding="utf-8", errors="replace").read()
+    js = io.open(js_p, encoding="utf-8", errors="replace").read()
+
+    if 'v-model="settings.notify_enabled"' in html:
+        fails.append("启用通知又用回 v-model（只改本地值，不会落盘）")
+    if 'saveNotifyFlag(' not in html:
+        fails.append("启用通知没有绑 @change 即时保存")
+    if 'v-model="settings.notify_events[key]"' in html:
+        fails.append("事件开关又用回 v-model（只改本地值，不会落盘）")
+    if 'saveNotifyEvent(' not in html:
+        fails.append("事件开关没有绑 @change 即时保存")
+
+    for fn in ("saveNotifyFlag", "saveNotifyEvent"):
+        if "async %s(" % fn not in js:
+            fails.append("app.js 缺少 %s 方法" % fn)
+
+    # 通知卡里不该再有保存按钮
+    start = html.find("t('set.notifyEvents')")
+    end = html.find("t('notifyLog.title')")
+    if start >= 0 and end > start:
+        seg = html[start:end]
+        if '@click="saveSettings"' in seg:
+            fails.append("通知卡里还留着保存按钮（开关已即时保存，不需要）")
 
     return fails
 

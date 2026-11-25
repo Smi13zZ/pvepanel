@@ -803,6 +803,41 @@
 
       // ---- settings ----
 
+      // 通知区的开关是「一勾就存」：勾上/取消立刻落到后端。
+      // 之前用 v-model 只改本地值，没有提交入口以外的触发点，
+      // 用户勾了「启用通知」页面看着是选中的，后端仍是 false，推送自然不来。
+      async saveNotifyFlag(key, val) {
+        const patch = {};
+        patch[key] = val;
+        // 本地先改，开关立刻跟手；失败再按后端返回值纠正
+        if (key === 'notify_enabled') this.settings.notify_enabled = val;
+        try {
+          const r = await API.saveSettings(patch);
+          this.settings = Object.assign(this.settings, r.settings || {});
+          this.toast(t("common.saved"));
+        } catch (e) {
+          this.toast(String(e.message || e), "err");
+          try {
+            const r2 = await API.settings();
+            if (r2 && r2.settings) this.settings = Object.assign(this.settings, r2.settings);
+          } catch (e2) { /* 读不回就保持现状，至少提示过失败 */ }
+        }
+      },
+
+      // 单个事件开关：拷贝一份 events 再改，避免直接改到响应式对象上的同一引用
+      async saveNotifyEvent(key, val) {
+        const events = Object.assign({}, this.settings.notify_events);
+        events[key] = val;
+        this.settings.notify_events = events;
+        try {
+          const r = await API.saveSettings({ notify_events: events });
+          this.settings = Object.assign(this.settings, r.settings || {});
+          this.toast(t("common.saved"));
+        } catch (e) {
+          this.toast(String(e.message || e), "err");
+        }
+      },
+
       async saveSettings(patch, silent) {
         const body = patch || {
           storage_warn: this.settings.storage_warn,
